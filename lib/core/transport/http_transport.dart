@@ -13,10 +13,10 @@ import 'package:fast_share/core/transport/transport_interface.dart';
 
 /// HTTP-based transport for cross-platform file sharing (Android <-> Windows).
 ///
-/// Discovery: UDP broadcast on port 53317
-/// Transfer: HTTP server/client on port 53317
+/// Discovery: UDP broadcast on fixed port 53317
+/// Transfer: HTTP server/client on a dynamically assigned port
 class HttpTransport implements TransportInterface {
-  static const int _port = 53317;
+  static const int _udpPort = 53317;
   static const int _broadcastIntervalMs = 2000;
 
   final _uuid = Uuid();
@@ -28,6 +28,7 @@ class HttpTransport implements TransportInterface {
 
   // HTTP Server
   HttpServer? _httpServer;
+  int get httpPort => _httpServer?.port ?? 0;
 
   // Stream controllers
   final _deviceController = StreamController<DeviceInfo>.broadcast();
@@ -78,7 +79,7 @@ class HttpTransport implements TransportInterface {
     try {
       _udpSocket = await RawDatagramSocket.bind(
         InternetAddress.anyIPv4,
-        _port,
+        _udpPort,
         reuseAddress: true,
         reusePort: true,
       );
@@ -93,7 +94,7 @@ class HttpTransport implements TransportInterface {
         }
       });
 
-      print('[HttpTransport] UDP discovery started on port $_port');
+      print('[HttpTransport] UDP discovery started on port $_udpPort');
     } catch (e) {
       print('[HttpTransport] Failed to start UDP discovery: $e');
     }
@@ -117,7 +118,7 @@ class HttpTransport implements TransportInterface {
       _udpSocket!.send(
         data,
         InternetAddress('255.255.255.255'),
-        _port,
+        _udpPort,
       );
     } catch (e) {
       print('[HttpTransport] Broadcast error: $e');
@@ -153,11 +154,13 @@ class HttpTransport implements TransportInterface {
   // ──────────────────────────────────────────
 
   Future<void> _startHttpServer() async {
-    final handler = const shelf.Pipeline()
-        .addHandler(_router);
-
-    _httpServer = await shelf_io.serve(handler, InternetAddress.anyIPv4, _port);
-    print('[HttpTransport] HTTP server running on port $_port');
+    try {
+      final handler = const shelf.Pipeline().addHandler(_router);
+      _httpServer = await shelf_io.serve(handler, InternetAddress.anyIPv4, 0, shared: true);
+      print('[HttpTransport] HTTP server running on dynamically assigned port $httpPort');
+    } catch (e) {
+      print('[HttpTransport] Failed to start HTTP server: $e');
+    }
   }
 
   Future<shelf.Response> _router(shelf.Request request) async {

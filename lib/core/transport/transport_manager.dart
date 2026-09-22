@@ -29,6 +29,9 @@ class TransportManager {
   Future<void> initialize() async {
     if (_initialized) return;
 
+    // Always initialize HTTP transport (works everywhere)
+    await _httpTransport.initialize();
+
     // Build self info
     final localIp = await HttpTransport.getLocalIp();
     final deviceName = Platform.localHostname;
@@ -39,11 +42,8 @@ class TransportManager {
       name: deviceName.isNotEmpty ? deviceName : 'FastShare Device',
       os: os,
       ip: localIp,
-      port: 53317,
+      port: _httpTransport.httpPort,
     );
-
-    // Always initialize HTTP transport (works everywhere)
-    await _httpTransport.initialize();
 
     // Initialize Nearby only on Android
     if (NearbyTransport.isSupported) {
