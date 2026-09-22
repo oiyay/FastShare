@@ -156,8 +156,16 @@ class HttpTransport implements TransportInterface {
 
   Future<void> _startHttpServer() async {
     try {
+      // Pipeline without compression — file data is already binary/compressed
       final handler = const shelf.Pipeline().addHandler(_router);
-      _httpServer = await shelf_io.serve(handler, InternetAddress.anyIPv4, 0, shared: true);
+      _httpServer = await shelf_io.serve(
+        handler,
+        InternetAddress.anyIPv4,
+        0,
+        shared: true,
+        poweredByHeader: null, // remove unnecessary header
+      );
+      _httpServer!.autoCompress = false; // don't waste CPU compressing binary file data
       print('[HttpTransport] HTTP server running on dynamically assigned port $httpPort');
     } catch (e) {
       print('[HttpTransport] Failed to start HTTP server: $e');
@@ -229,13 +237,26 @@ class HttpTransport implements TransportInterface {
       final sink = file.openWrite();
       final totalSize = request.contentLength ?? 1;
       int bytesReceived = 0;
+      int lastProgressReport = 0;
+      const int progressThrottleMs = 100;
 
       await for (final chunk in request.read()) {
         sink.add(chunk);
         bytesReceived += chunk.length;
-        if (_progressCallbacks.containsKey(token) && fileName != null) {
+
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (_progressCallbacks.containsKey(token) &&
+            fileName != null &&
+            (now - lastProgressReport) >= progressThrottleMs) {
+          lastProgressReport = now;
           _progressCallbacks[token]!(fileName, bytesReceived / totalSize);
         }
+      }
+
+      // Fire 100% completion
+      if (_progressCallbacks.containsKey(token) && fileName != null) {
+        _progressCallbacks[token]!(fileName, 1.0);
+        _progressCallbacks.remove(token);
       }
 
       await sink.flush();
@@ -292,29 +313,38 @@ class HttpTransport implements TransportInterface {
 
     final uri = Uri.parse(
       'http://${target.ip}:${target.port}/api/receive'
-      '?token=$token&fileId=$fileId&fileName=$fileName',
+      '?token=$token&fileId=$fileId&fileName=${Uri.encodeComponent(fileName)}',
     );
 
-    // STREAMING: Read file in chunks and pipe to HTTP request
+    // STREAMING: Large 4MB chunks for maximum LAN throughput
     final request = http.StreamedRequest('POST', uri);
     request.headers['Content-Type'] = 'application/octet-stream';
     request.contentLength = fileSize;
 
     int bytesSent = 0;
+    int lastProgressReport = 0;
+    const int progressThrottleMs = 100; // Report UI progress max every 100ms
 
-    // Pipe file stream with progress tracking
+    // Pipe file stream with large chunks and throttled progress
     file.openRead().listen(
       (chunk) {
         request.sink.add(chunk);
         bytesSent += chunk.length;
-        onProgress?.call(bytesSent / fileSize);
+
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (onProgress != null && (now - lastProgressReport) >= progressThrottleMs) {
+          lastProgressReport = now;
+          onProgress(bytesSent / fileSize);
+        }
       },
       onDone: () {
+        onProgress?.call(1.0); // always fire 100% at end
         request.sink.close();
       },
       onError: (error) {
         request.sink.addError(error);
       },
+      cancelOnError: true,
     );
 
     final response = await http.Client().send(request);
