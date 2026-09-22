@@ -2,7 +2,7 @@ name: Build FastShare
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   release:
     types: [created]
   workflow_run:
