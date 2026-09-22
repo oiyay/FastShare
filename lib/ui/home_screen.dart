@@ -3,11 +3,12 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:path_provider/path_provider.dart';
 
 import 'package:fast_share/core/models/device_info.dart';
 import 'package:fast_share/core/models/transfer_request.dart';
+import 'package:fast_share/core/services/settings_service.dart';
 import 'package:fast_share/core/transport/transport_manager.dart';
+import 'package:fast_share/ui/settings_screen.dart';
 import 'package:fast_share/ui/widgets/device_tile.dart';
 import 'package:fast_share/ui/widgets/transfer_tile.dart';
 
@@ -20,6 +21,7 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final TransportManager _transport = TransportManager();
+  final SettingsService _settings = SettingsService();
 
   // State
   final Map<String, DeviceInfo> _devices = {};
@@ -47,21 +49,25 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // Listen for discovered devices
       _deviceSub = _transport.devices.listen((device) {
-        setState(() {
-          _devices[device.id] = device;
-        });
+        if (mounted) {
+          setState(() {
+            _devices[device.id] = device;
+          });
+        }
       });
 
       // Listen for incoming transfer requests
       _requestSub = _transport.incomingRequests.listen(_handleIncomingRequest);
 
-      setState(() {
-        _isInitialized = true;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() => _isLoading = false);
       if (mounted) {
+        setState(() {
+          _isInitialized = true;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to initialize: $e')),
         );
@@ -71,6 +77,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _handleIncomingRequest(TransferRequest request) {
     if (!mounted) return;
+
+    // Auto-accept if enabled
+    if (_settings.autoAccept) {
+      _acceptTransfer(request);
+      return;
+    }
 
     // Show accept/reject dialog
     showDialog(
@@ -113,10 +125,21 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _acceptTransfer(TransferRequest request) async {
     try {
-      // Get save directory
-      final dir = await getApplicationDocumentsDirectory();
-      final savePath = '${dir.path}/FastShare';
+      // Get save directory from settings
+      final savePath = await _settings.getEffectiveSavePath();
       await Directory(savePath).create(recursive: true);
+
+      // Add to transfers list FIRST so progress can update them
+      setState(() {
+        for (final file in request.files) {
+          _transfers.insert(0, TransferInfo(
+            fileName: file.name,
+            fileSize: file.size,
+            status: TransferStatus.receiving,
+            isOutgoing: false,
+          ));
+        }
+      });
 
       await _transport.acceptTransfer(request, savePath, onProgress: (fileName, progress) {
         if (!mounted) return;
@@ -133,21 +156,17 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       });
 
-      // Add to transfers list
-      setState(() {
-        for (final file in request.files) {
-          _transfers.insert(0, TransferInfo(
-            fileName: file.name,
-            fileSize: file.size,
-            status: TransferStatus.receiving,
-            isOutgoing: false,
-          ));
-        }
-      });
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Receiving files from ${request.senderName}...')),
+          SnackBar(
+            content: Text('Receiving files from ${request.senderName}...'),
+            action: SnackBarAction(
+              label: 'Open Folder',
+              onPressed: () {
+                // TODO: Open save directory in file manager
+              },
+            ),
+          ),
         );
       }
     } catch (e) {
@@ -183,7 +202,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (filePaths.isEmpty) return;
 
     // Add to transfers list
-    final transferIndex = _transfers.length;
     setState(() {
       for (final file in result.files) {
         _transfers.insert(0, TransferInfo(
@@ -201,7 +219,6 @@ class _HomeScreenState extends State<HomeScreen> {
         _selectedDevice!,
         filePaths,
         onProgress: (progress) {
-          // Update progress of the most recent outgoing transfer
           if (mounted && _transfers.isNotEmpty) {
             setState(() {
               _transfers[0] = _transfers[0].copyWith(progress: progress);
@@ -263,7 +280,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const Text('FastShare', style: TextStyle(fontWeight: FontWeight.bold)),
             Text(
-              '${_transport.selfInfo?.name ?? "..."} • ${_getCurrentOS()}',
+              '${_transport.selfInfo?.name ?? _settings.deviceName} • ${_getCurrentOS()}',
               style: TextStyle(fontSize: 12, color: Colors.grey[400]),
             ),
           ],
@@ -273,11 +290,22 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _isInitialized ? () {
-              // Just clear the UI list. The transport layer is constantly
-              // broadcasting and listening in the background every 2 seconds.
               setState(() => _devices.clear());
             } : null,
             tooltip: 'Refresh devices',
+          ),
+          // Settings button
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const SettingsScreen()),
+              );
+              // Refresh UI after settings change
+              if (mounted) setState(() {});
+            },
+            tooltip: 'Settings',
           ),
         ],
       ),
@@ -367,6 +395,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 'Transfers (${_transfers.length})',
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
+              const Spacer(),
+              if (_transfers.isNotEmpty)
+                TextButton(
+                  onPressed: () {
+                    setState(() => _transfers.clear());
+                  },
+                  child: const Text('Clear', style: TextStyle(fontSize: 12)),
+                ),
             ],
           ),
           const SizedBox(height: 8),

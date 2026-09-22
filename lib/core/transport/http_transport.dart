@@ -145,8 +145,25 @@ class HttpTransport implements TransportInterface {
       );
       _discoveredDevices[updated.id] = updated;
       _deviceController.add(updated);
+
+      // Cleanup stale devices
+      _cleanupStaleDevices();
     } catch (e) {
       // Ignore malformed packets
+    }
+  }
+
+  /// Remove devices that haven't been seen for 10+ seconds.
+  void _cleanupStaleDevices() {
+    final now = DateTime.now();
+    final staleIds = <String>[];
+    for (final entry in _discoveredDevices.entries) {
+      if (now.difference(entry.value.lastSeen).inSeconds > 10) {
+        staleIds.add(entry.key);
+      }
+    }
+    for (final id in staleIds) {
+      _discoveredDevices.remove(id);
     }
   }
 
@@ -183,6 +200,18 @@ class HttpTransport implements TransportInterface {
     }
     if (request.method == 'GET' && path == 'api/ping') {
       return shelf.Response.ok(jsonEncode({'status': 'ok', 'app': 'FastShare'}));
+    }
+    if (request.method == 'GET' && path == 'api/info') {
+      return shelf.Response.ok(
+        jsonEncode({
+          'app': 'FastShare',
+          'version': '2.0',
+          'protocol': 2,
+          'device_name': _selfInfo?.name ?? 'Unknown',
+          'os': _selfInfo?.os ?? 'unknown',
+        }),
+        headers: {'Content-Type': 'application/json'},
+      );
     }
 
     return shelf.Response.notFound('Not found');
@@ -284,19 +313,37 @@ class HttpTransport implements TransportInterface {
     DeviceInfo target,
     TransferRequest request,
   ) async {
-    final uri = Uri.parse('http://${target.ip}:${target.port}/api/prepare-receive');
-
-    final response = await http.post(
-      uri,
-      headers: {'Content-Type': 'application/json'},
-      body: request.toJsonString(),
-    );
-
-    if (response.statusCode == 200) {
-      return TransferResponse.fromJsonString(response.body);
+    // Verify device is reachable first
+    try {
+      final pingUri = Uri.parse('http://${target.ip}:${target.port}/api/ping');
+      await http.get(pingUri).timeout(const Duration(seconds: 3));
+    } on TimeoutException {
+      throw Exception('Device "${target.name}" is unreachable (timeout)');
+    } on SocketException {
+      throw Exception('Device "${target.name}" is unreachable (connection refused)');
+    } catch (e) {
+      throw Exception('Device "${target.name}" is unreachable: $e');
     }
 
-    throw Exception('Transfer request failed: ${response.statusCode}');
+    // Send the actual transfer request
+    try {
+      final uri = Uri.parse('http://${target.ip}:${target.port}/api/prepare-receive');
+      final response = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: request.toJsonString(),
+      ).timeout(const Duration(seconds: 65)); // 60s user decision + 5s buffer
+
+      if (response.statusCode == 200) {
+        return TransferResponse.fromJsonString(response.body);
+      }
+
+      throw Exception('Transfer request failed: ${response.statusCode}');
+    } on TimeoutException {
+      throw Exception('Transfer request to "${target.name}" timed out');
+    } on SocketException {
+      throw Exception('Lost connection to "${target.name}"');
+    }
   }
 
   @override

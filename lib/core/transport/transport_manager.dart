@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:fast_share/core/models/device_info.dart';
 import 'package:fast_share/core/models/transfer_request.dart';
+import 'package:fast_share/core/services/settings_service.dart';
 import 'package:fast_share/core/transport/transport_interface.dart';
 import 'package:fast_share/core/transport/http_transport.dart';
 import 'package:fast_share/core/transport/nearby_transport.dart';
@@ -34,7 +35,8 @@ class TransportManager {
 
     // Build self info
     final localIp = await HttpTransport.getLocalIp();
-    final deviceName = Platform.localHostname;
+    final settings = SettingsService();
+    final deviceName = settings.deviceName;
     final os = _getCurrentOS();
 
     _selfInfo = DeviceInfo(
