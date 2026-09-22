@@ -152,19 +152,36 @@ class HttpTransport implements TransportInterface {
     try {
       final json = jsonDecode(utf8.decode(datagram.data)) as Map<String, dynamic>;
 
-      // Ignore non-FastShare packets
-      if (json['app'] != 'FastShare') return;
+      DeviceInfo? device;
 
-      final device = DeviceInfo.fromJson(json);
+      if (json['app'] == 'FastShare') {
+        // FastShare Protocol
+        device = DeviceInfo.fromJson(json);
+      } else if (json.containsKey('alias') && json.containsKey('fingerprint')) {
+        // LocalSend Protocol Intercept!
+        // LocalSend sends: alias, version, deviceModel, deviceType, fingerprint, port, protocol
+        device = DeviceInfo(
+          id: json['fingerprint'] ?? 'localsend-${datagram.address.address}',
+          name: '${json['alias'] ?? 'LocalSend Device'}',
+          os: (json['deviceModel'] ?? 'Unknown').toString().toLowerCase(),
+          ip: datagram.address.address,
+          port: json['port'] ?? 53317,
+          protocol: 'localsend',
+        );
+      } else {
+        // Unknown protocol
+        return;
+      }
 
-      // Ignore self
+      // Ignore self (matching ID)
       if (_selfInfo != null && device.id == _selfInfo!.id) return;
 
       // Update or add device
       final updated = device.copyWith(
-        ip: datagram.address.address,
+        ip: datagram.address.address, // Always trust the actual packet IP
         lastSeen: DateTime.now(),
       );
+      
       _discoveredDevices[updated.id] = updated;
       _deviceController.add(updated);
 

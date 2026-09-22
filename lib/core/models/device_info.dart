@@ -7,6 +7,7 @@ class DeviceInfo {
   final String os; // 'android', 'windows', 'linux', 'macos', 'ios'
   final String ip;
   final int port;
+  final String protocol; // 'fastshare', 'localsend'
   final DateTime lastSeen;
 
   DeviceInfo({
@@ -15,6 +16,7 @@ class DeviceInfo {
     required this.os,
     required this.ip,
     required this.port,
+    this.protocol = 'fastshare',
     DateTime? lastSeen,
   }) : lastSeen = lastSeen ?? DateTime.now();
 
@@ -24,6 +26,7 @@ class DeviceInfo {
     String? os,
     String? ip,
     int? port,
+    String? protocol,
     DateTime? lastSeen,
   }) {
     return DeviceInfo(
@@ -32,6 +35,7 @@ class DeviceInfo {
       os: os ?? this.os,
       ip: ip ?? this.ip,
       port: port ?? this.port,
+      protocol: protocol ?? this.protocol,
       lastSeen: lastSeen ?? this.lastSeen,
     );
   }
@@ -44,6 +48,7 @@ class DeviceInfo {
         'os': os,
         'ip': ip,
         'port': port,
+        'protocol': protocol,
       };
 
   factory DeviceInfo.fromJson(Map<String, dynamic> json) {
@@ -53,6 +58,7 @@ class DeviceInfo {
       os: json['os'] as String,
       ip: json['ip'] as String,
       port: json['port'] as int,
+      protocol: (json['protocol'] as String?) ?? 'fastshare',
     );
   }
 
@@ -69,5 +75,5 @@ class DeviceInfo {
   int get hashCode => id.hashCode;
 
   @override
-  String toString() => 'DeviceInfo($name, $os, $ip:$port)';
+  String toString() => 'DeviceInfo($name, $os, $ip:$port, $protocol)';
 }

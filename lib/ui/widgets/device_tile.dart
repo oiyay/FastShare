@@ -46,11 +46,30 @@ class DeviceTile extends StatelessWidget {
               : null,
           size: 32,
         ),
-        title: Text(
-          device.name,
-          style: TextStyle(
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-          ),
+        title: Row(
+          children: [
+            Text(
+              device.name,
+              style: TextStyle(
+                fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+              ),
+            ),
+            if (device.protocol == 'localsend')
+              Padding(
+                padding: const EdgeInsets.only(left: 8.0),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    'LocalSend',
+                    style: TextStyle(fontSize: 10, color: Colors.teal, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+          ],
         ),
         subtitle: Text('${device.os.toUpperCase()} • ${device.ip}'),
         trailing: isSelected

@@ -127,6 +127,10 @@ class TransportManager {
     void Function(double progress)? onProgress,
   }) async {
     if (_selfInfo == null) throw StateError('TransportManager not initialized');
+    
+    if (target.protocol == 'localsend') {
+      throw Exception('Hybrid Sending to LocalSend devices is coming in a future update! For now, FastShare can only detect them.');
+    }
 
     // Choose transport
     final transport = _selectTransport(target);
