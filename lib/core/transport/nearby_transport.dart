@@ -85,7 +85,11 @@ class NearbyTransport implements TransportInterface {
   Stream<TransferRequest> get incomingRequests => _requestController.stream;
 
   @override
-  Future<void> acceptTransfer(TransferRequest request, String savePath) async {
+  Future<void> acceptTransfer(
+    TransferRequest request,
+    String savePath, {
+    void Function(String fileName, double progress)? onProgress,
+  }) async {
     // No-op — HttpTransport handles all transfers
   }
 

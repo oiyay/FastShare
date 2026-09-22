@@ -162,11 +162,15 @@ class TransportManager {
   }
 
   /// Accept an incoming transfer request.
-  Future<void> acceptTransfer(TransferRequest request, String savePath) async {
+  Future<void> acceptTransfer(
+    TransferRequest request,
+    String savePath, {
+    void Function(String fileName, double progress)? onProgress,
+  }) async {
     // Try both transports — only the one with the pending request will act
-    await _httpTransport.acceptTransfer(request, savePath);
+    await _httpTransport.acceptTransfer(request, savePath, onProgress: onProgress);
     if (NearbyTransport.isSupported) {
-      await _nearbyTransport.acceptTransfer(request, savePath);
+      await _nearbyTransport.acceptTransfer(request, savePath, onProgress: onProgress);
     }
   }
 

@@ -118,7 +118,20 @@ class _HomeScreenState extends State<HomeScreen> {
       final savePath = '${dir.path}/FastShare';
       await Directory(savePath).create(recursive: true);
 
-      await _transport.acceptTransfer(request, savePath);
+      await _transport.acceptTransfer(request, savePath, onProgress: (fileName, progress) {
+        if (!mounted) return;
+        setState(() {
+          for (int i = 0; i < _transfers.length; i++) {
+            if (_transfers[i].fileName == fileName && !_transfers[i].isOutgoing) {
+              _transfers[i] = _transfers[i].copyWith(
+                progress: progress,
+                status: progress >= 1.0 ? TransferStatus.completed : TransferStatus.receiving,
+              );
+              break;
+            }
+          }
+        });
+      });
 
       // Add to transfers list
       setState(() {
@@ -259,10 +272,10 @@ class _HomeScreenState extends State<HomeScreen> {
           // Refresh button
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _isInitialized ? () async {
-              await _transport.stopDiscovery();
+            onPressed: _isInitialized ? () {
+              // Just clear the UI list. The transport layer is constantly
+              // broadcasting and listening in the background every 2 seconds.
               setState(() => _devices.clear());
-              await _transport.startDiscovery();
             } : null,
             tooltip: 'Refresh devices',
           ),

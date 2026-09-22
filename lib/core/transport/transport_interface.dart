@@ -42,7 +42,11 @@ abstract class TransportInterface {
   Stream<TransferRequest> get incomingRequests;
 
   /// Accept an incoming transfer and save files to [savePath].
-  Future<void> acceptTransfer(TransferRequest request, String savePath);
+  Future<void> acceptTransfer(
+    TransferRequest request,
+    String savePath, {
+    void Function(String fileName, double progress)? onProgress,
+  });
 
   /// Reject an incoming transfer.
   Future<void> rejectTransfer(TransferRequest request);

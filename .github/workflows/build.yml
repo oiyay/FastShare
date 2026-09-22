@@ -79,7 +79,8 @@ jobs:
       - name: Zip output
         shell: pwsh
         run: |
-          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath FastShare-Windows.zip
+          Rename-Item -Path "build\windows\x64\runner\Release" -NewName "FastShare"
+          Compress-Archive -Path build\windows\x64\runner\FastShare -DestinationPath FastShare-Windows.zip
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4

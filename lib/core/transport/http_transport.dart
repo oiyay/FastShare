@@ -38,6 +38,7 @@ class HttpTransport implements TransportInterface {
   final Map<String, DeviceInfo> _discoveredDevices = {};
   final Map<String, Completer<TransferResponse>> _pendingRequests = {};
   final Map<String, String> _acceptedTokens = {}; // token -> savePath
+  final Map<String, void Function(String fileName, double progress)> _progressCallbacks = {};
 
   @override
   Future<void> initialize() async {
@@ -226,9 +227,15 @@ class HttpTransport implements TransportInterface {
       // STREAMING: Write directly to disk, never load full file to memory
       final file = File(filePath);
       final sink = file.openWrite();
+      final totalSize = request.contentLength ?? 1;
+      int bytesReceived = 0;
 
       await for (final chunk in request.read()) {
         sink.add(chunk);
+        bytesReceived += chunk.length;
+        if (_progressCallbacks.containsKey(token) && fileName != null) {
+          _progressCallbacks[token]!(fileName, bytesReceived / totalSize);
+        }
       }
 
       await sink.flush();
@@ -328,9 +335,16 @@ class HttpTransport implements TransportInterface {
   Stream<TransferRequest> get incomingRequests => _requestController.stream;
 
   @override
-  Future<void> acceptTransfer(TransferRequest request, String savePath) async {
+  Future<void> acceptTransfer(
+    TransferRequest request,
+    String savePath, {
+    void Function(String fileName, double progress)? onProgress,
+  }) async {
     final token = _uuid.v4();
     _acceptedTokens[token] = savePath;
+    if (onProgress != null) {
+      _progressCallbacks[token] = onProgress;
+    }
 
     final completer = _pendingRequests.remove(request.senderId);
     if (completer != null && !completer.isCompleted) {
