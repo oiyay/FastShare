@@ -112,16 +112,37 @@ class HttpTransport implements TransportInterface {
     _sendBroadcast();
   }
 
-  void _sendBroadcast() {
+  void _sendBroadcast() async {
     if (_selfInfo == null || _udpSocket == null) return;
 
     try {
       final data = utf8.encode(_selfInfo!.toJsonString());
-      _udpSocket!.send(
-        data,
-        InternetAddress('255.255.255.255'),
-        _udpPort,
+
+      // Global broadcast (works on some networks)
+      _udpSocket!.send(data, InternetAddress('255.255.255.255'), _udpPort);
+
+      // Subnet-specific broadcasts (critical for Mobile Hotspots and Windows Multi-NIC)
+      final interfaces = await NetworkInterface.list(
+        type: InternetAddressType.IPv4,
+        includeLoopback: false,
       );
+      
+      for (final interface in interfaces) {
+        for (final addr in interface.addresses) {
+          if (!addr.isLoopback) {
+            // Assume /24 subnet (standard for hotspots and home Wi-Fi)
+            // e.g., 192.168.43.51 -> 192.168.43.255
+            final parts = addr.address.split('.');
+            if (parts.length == 4) {
+              parts[3] = '255';
+              final subnetBroadcast = parts.join('.');
+              try {
+                _udpSocket!.send(data, InternetAddress(subnetBroadcast), _udpPort);
+              } catch (_) {}
+            }
+          }
+        }
+      }
     } catch (e) {
       print('[HttpTransport] Broadcast error: $e');
     }
