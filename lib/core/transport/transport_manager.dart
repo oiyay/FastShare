@@ -180,11 +180,10 @@ class TransportManager {
 
   /// Select the best transport for the given target device.
   TransportInterface _selectTransport(DeviceInfo target) {
-    // Use Nearby Connections if both devices are Android
+    // Use Nearby Connections if both devices are Android and Nearby is available
     if (NearbyTransport.isSupported && target.os == 'android') {
       print('[TransportManager] Using Nearby Connections (Android-to-Android)');
-      // For now, fall through to HTTP since Nearby is a stub
-      // TODO: return _nearbyTransport; when fully implemented
+      return _nearbyTransport;
     }
 
     // Default: HTTP transport (works everywhere)

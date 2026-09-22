@@ -5,20 +5,17 @@ on:
     branches: [master]
   release:
     types: [created]
-  workflow_run:
-    workflows: ["Initialize Flutter Project"]
-    types: [completed]
 
 jobs:
   # ─────────────────────────────────────
-  # JOB 1: Build Android APK
+  # JOB 1: Build Android APK (Signed Release)
   # ─────────────────────────────────────
   build-android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
@@ -26,44 +23,25 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          cache: true
 
-      - name: Generate platform files if missing
+      - name: Decode keystore
         run: |
-          if [ ! -d "android" ]; then
-            flutter create . --project-name fast_share --org com.fastshare --platforms android,windows
-          fi
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > android/app/fastshare-release.jks
 
-      - name: Fix Kotlin version
+      - name: Create key.properties
         run: |
-          # Update Kotlin Gradle plugin to latest compatible version
-          if [ -f "android/settings.gradle" ]; then
-            sed -i 's/id "org.jetbrains.kotlin.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "2.1.0"/' android/settings.gradle
-          fi
-          # Set compile SDK to 34 to avoid android.jar issues
-          if [ -f "android/app/build.gradle" ]; then
-            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/' android/app/build.gradle
-          fi
-
-      - name: Add Android permissions
-        run: |
-          # Add required permissions to AndroidManifest.xml
-          MANIFEST="android/app/src/main/AndroidManifest.xml"
-          if ! grep -q "android.permission.INTERNET" "$MANIFEST"; then
-            sed -i '/<\/manifest>/i \
-                <uses-permission android:name="android.permission.INTERNET"\/>\
-                <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"\/>\
-                <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"\/>\
-                <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"\/>\
-                <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"\/>\
-                <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"\/>\
-                <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"\/>\
-                <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"\/>' "$MANIFEST"
-          fi
+          cat > android/key.properties << EOF
+          storePassword=${{ secrets.STORE_PASSWORD }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=fastshare-release.jks
+          EOF
 
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build APK
+      - name: Build signed APK
         run: flutter build apk --release
 
       - name: Upload APK
@@ -76,23 +54,17 @@ jobs:
   # JOB 2: Build Windows EXE
   # ─────────────────────────────────────
   build-windows:
-    runs-on: windows-2022
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+          cache: true
 
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
-
-      - name: Generate platform files if missing
-        shell: pwsh
-        run: |
-          if (!(Test-Path "windows")) {
-            flutter create . --project-name fast_share --org com.fastshare --platforms android,windows
-          }
 
       - name: Install dependencies
         run: flutter pub get
@@ -103,11 +75,7 @@ jobs:
       - name: Zip output
         shell: pwsh
         run: |
-          $releasePath = "build\windows\x64\runner\Release"
-          if (!(Test-Path $releasePath)) {
-            $releasePath = "build\windows\runner\Release"
-          }
-          Compress-Archive -Path "$releasePath\*" -DestinationPath FastShare-Windows.zip
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath FastShare-Windows.zip
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4

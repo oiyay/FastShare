@@ -10,100 +10,47 @@ import 'package:fast_share/core/transport/transport_interface.dart';
 /// Uses Google's Nearby Connections API which leverages Wi-Fi Direct,
 /// so no router is needed. Only available on Android.
 ///
-/// NOTE: This is a stub implementation. The nearby_connections package
-/// will only be available on Android at runtime.
+/// Current status: This transport gracefully reports as unsupported
+/// and falls back to HttpTransport. When the nearby_connections package
+/// is added to pubspec.yaml and this class is implemented, it will
+/// enable direct Android-to-Android transfers without a router.
 class NearbyTransport implements TransportInterface {
   /// Check if Nearby Connections is supported on this platform.
-  static bool get isSupported => Platform.isAndroid;
+  /// Currently always returns false until the nearby_connections
+  /// package is integrated.
+  static bool get isSupported => false; // Will be Platform.isAndroid when implemented
 
   final _deviceController = StreamController<DeviceInfo>.broadcast();
   final _requestController = StreamController<TransferRequest>.broadcast();
 
   @override
   Future<void> initialize() async {
-    if (!isSupported) {
-      print('[NearbyTransport] Not supported on this platform');
-      return;
-    }
-
-    // TODO: Initialize Nearby Connections
-    // Nearby().askLocationPermission();
-    // Nearby().askExternalStoragePermission();
-    print('[NearbyTransport] Initialized (stub)');
+    // Nearby Connections is not yet integrated.
+    // When implemented, this will request location and storage permissions
+    // and initialize the Nearby Connections API.
+    print('[NearbyTransport] Not yet integrated — using HTTP transport as fallback');
   }
 
   @override
   Future<void> dispose() async {
     await _deviceController.close();
     await _requestController.close();
-
-    if (isSupported) {
-      // TODO: Nearby().stopDiscovery();
-      // TODO: Nearby().stopAdvertising();
-    }
   }
 
   @override
   Stream<DeviceInfo> discoverDevices() {
-    if (!isSupported) return const Stream.empty();
-
-    // TODO: Implement using Nearby().startDiscovery()
-    // Strategy: Strategy.P2P_STAR
-    //
-    // Nearby().startDiscovery(
-    //   userName,
-    //   Strategy.P2P_STAR,
-    //   onEndpointFound: (id, name, serviceId) {
-    //     _deviceController.add(DeviceInfo(
-    //       id: id,
-    //       name: name,
-    //       os: 'android',
-    //       ip: '', // Not used for Nearby
-    //       port: 0,
-    //     ));
-    //   },
-    //   onEndpointLost: (id) {
-    //     // Handle endpoint lost
-    //   },
-    // );
-
-    print('[NearbyTransport] Discovery started (stub)');
+    // Returns empty stream — all discovery happens via HttpTransport
     return _deviceController.stream;
   }
 
   @override
   Future<void> startAdvertising(DeviceInfo selfInfo) async {
-    if (!isSupported) return;
-
-    // TODO: Implement using Nearby().startAdvertising()
-    //
-    // Nearby().startAdvertising(
-    //   selfInfo.name,
-    //   Strategy.P2P_STAR,
-    //   onConnectionInitiated: (id, info) {
-    //     // Accept connection
-    //     Nearby().acceptConnection(id,
-    //       onPayLoadRecieved: (endpointId, payload) {
-    //         // Handle incoming data
-    //       },
-    //     );
-    //   },
-    //   onConnectionResult: (id, status) {
-    //     // Connection result
-    //   },
-    //   onDisconnected: (id) {
-    //     // Handle disconnect
-    //   },
-    // );
-
-    print('[NearbyTransport] Advertising started (stub)');
+    // No-op until Nearby Connections is integrated
   }
 
   @override
   Future<void> stopAdvertising() async {
-    if (!isSupported) return;
-    // TODO: Nearby().stopAdvertising();
-    print('[NearbyTransport] Advertising stopped (stub)');
+    // No-op until Nearby Connections is integrated
   }
 
   @override
@@ -111,15 +58,12 @@ class NearbyTransport implements TransportInterface {
     DeviceInfo target,
     TransferRequest request,
   ) async {
-    if (!isSupported) {
-      throw UnsupportedError('Nearby Connections not supported on this platform');
-    }
-
-    // TODO: Implement via Nearby().requestConnection()
-    // then send TransferRequest as Payload.BYTES
-    // wait for response Payload.BYTES
-
-    throw UnimplementedError('Nearby transfer request not yet implemented');
+    // Should never be called since isSupported returns false.
+    // TransportManager will always route to HttpTransport.
+    throw StateError(
+      'NearbyTransport.sendTransferRequest called but Nearby is not yet integrated. '
+      'TransportManager should route to HttpTransport instead.',
+    );
   }
 
   @override
@@ -130,20 +74,11 @@ class NearbyTransport implements TransportInterface {
     String filePath, {
     void Function(double progress)? onProgress,
   }) async {
-    if (!isSupported) {
-      throw UnsupportedError('Nearby Connections not supported on this platform');
-    }
-
-    // TODO: Implement using Nearby().sendFilePayload()
-    //
-    // Nearby().sendFilePayload(
-    //   target.id,
-    //   filePath,
-    // );
-    //
-    // Listen for progress via PayloadTransferUpdate
-
-    throw UnimplementedError('Nearby file send not yet implemented');
+    // Should never be called since isSupported returns false.
+    throw StateError(
+      'NearbyTransport.sendFile called but Nearby is not yet integrated. '
+      'TransportManager should route to HttpTransport instead.',
+    );
   }
 
   @override
@@ -151,15 +86,11 @@ class NearbyTransport implements TransportInterface {
 
   @override
   Future<void> acceptTransfer(TransferRequest request, String savePath) async {
-    if (!isSupported) return;
-    // TODO: Accept Nearby connection and start receiving payload
-    print('[NearbyTransport] Accept transfer (stub)');
+    // No-op — HttpTransport handles all transfers
   }
 
   @override
   Future<void> rejectTransfer(TransferRequest request) async {
-    if (!isSupported) return;
-    // TODO: Reject Nearby connection
-    print('[NearbyTransport] Reject transfer (stub)');
+    // No-op — HttpTransport handles all transfers
   }
 }
