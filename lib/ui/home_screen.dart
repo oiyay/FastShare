@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:receive_sharing_intent/receive_sharing_intent.dart';
 
 import 'package:fast_share/core/models/device_info.dart';
 import 'package:fast_share/core/models/transfer_request.dart';
@@ -33,11 +35,119 @@ class _HomeScreenState extends State<HomeScreen> {
   // Subscriptions
   StreamSubscription? _deviceSub;
   StreamSubscription? _requestSub;
+  StreamSubscription? _intentSub;
+
+  // Files received from other apps (Quick Share, etc.)
+  List<SharedMediaFile>? _sharedFiles;
 
   @override
   void initState() {
     super.initState();
     _initTransport();
+    _initReceiveIntent();
+  }
+
+  /// Listen for files shared INTO our app from Quick Share / other apps
+  void _initReceiveIntent() {
+    // Handle files shared while app is already running
+    _intentSub = ReceiveSharingIntent.instance.getMediaStream().listen(
+      (List<SharedMediaFile> files) {
+        if (files.isNotEmpty && mounted) {
+          setState(() => _sharedFiles = files);
+          _showSharedFilesDialog(files);
+        }
+      },
+    );
+
+    // Handle files shared that LAUNCHED the app (cold start)
+    ReceiveSharingIntent.instance.getInitialMedia().then((List<SharedMediaFile> files) {
+      if (files.isNotEmpty && mounted) {
+        setState(() => _sharedFiles = files);
+        // Small delay to let the UI build first
+        Future.delayed(const Duration(milliseconds: 500), () {
+          if (mounted) _showSharedFilesDialog(files);
+        });
+      }
+    });
+  }
+
+  /// Show dialog when files are received from Quick Share / other apps
+  void _showSharedFilesDialog(List<SharedMediaFile> files) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.file_present, size: 40),
+        title: const Text('Files Received'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Received ${files.length} file(s) from another app:',
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
+            const SizedBox(height: 12),
+            ...files.take(5).map((f) {
+              final name = f.path.split('/').last.split('\\').last;
+              return Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.insert_drive_file, size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text(name, overflow: TextOverflow.ellipsis)),
+                  ],
+                ),
+              );
+            }),
+            if (files.length > 5)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('...and ${files.length - 5} more'),
+              ),
+            const SizedBox(height: 16),
+            const Text(
+              'What would you like to do?',
+              style: TextStyle(fontSize: 13, color: Colors.grey),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _sharedFiles = null;
+            },
+            child: const Text('Dismiss'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _forwardSharedFilesToDevice();
+            },
+            icon: const Icon(Icons.send),
+            label: const Text('Send via FastShare'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Forward files received from Quick Share to another device via FastShare
+  void _forwardSharedFilesToDevice() {
+    if (_sharedFiles == null || _sharedFiles!.isEmpty) return;
+
+    final filePaths = _sharedFiles!.map((f) => f.path).toList();
+    _sharedFiles = null;
+
+    if (_selectedDevice == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a device first, then try again!')),
+      );
+      return;
+    }
+
+    _sendFilePaths(filePaths);
   }
 
   Future<void> _initTransport() async {
@@ -159,7 +269,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted && _settings.showNotifications) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Receiving files from ${request.senderName}...'),
+            content: Text('Received files from ${request.senderName} ✅'),
             action: SnackBarAction(
               label: 'Open Folder',
               onPressed: () {
@@ -178,15 +288,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _pickAndSendFiles() async {
-    if (_selectedDevice == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select a device first!')),
-      );
-      return;
-    }
-
-    // Pick files
+  /// Show send mode selection when FAB is pressed
+  Future<void> _showSendOptions() async {
+    // Pick files first
     final result = await FilePicker.platform.pickFiles(
       allowMultiple: true,
       type: FileType.any,
@@ -201,12 +305,139 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (filePaths.isEmpty) return;
 
+    if (!mounted) return;
+
+    // Show send method picker
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.send, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Send ${result.files.length} file(s) via...',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(),
+
+              // Option 1: FastShare (direct LAN)
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                  child: const Icon(Icons.wifi),
+                ),
+                title: const Text('FastShare (Direct LAN)'),
+                subtitle: Text(
+                  _selectedDevice != null
+                    ? 'Send to ${_selectedDevice!.name}'
+                    : 'Select a device first',
+                ),
+                enabled: _selectedDevice != null && _selectedDevice!.protocol == 'fastshare',
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _sendFilePaths(filePaths);
+                },
+              ),
+
+              // Option 2: Quick Share / System Share
+              ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.blue.withOpacity(0.2),
+                  child: const Icon(Icons.share, color: Colors.blue),
+                ),
+                title: Text(Platform.isAndroid
+                    ? 'Quick Share / Nearby Share'
+                    : 'Windows Share (Quick Share)'),
+                subtitle: const Text('Send via system share sheet'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _sendViaSystemShare(filePaths);
+                },
+              ),
+
+              // Option 3: LocalSend target (if selected)
+              if (_selectedDevice != null && _selectedDevice!.protocol == 'localsend')
+                ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.teal.withOpacity(0.2),
+                    child: const Icon(Icons.devices, color: Colors.teal),
+                  ),
+                  title: Text('LocalSend to ${_selectedDevice!.name}'),
+                  subtitle: const Text('Coming soon!'),
+                  enabled: false,
+                  onTap: null,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Send files via the OS share sheet (Quick Share, Nearby Share, Bluetooth, etc.)
+  Future<void> _sendViaSystemShare(List<String> filePaths) async {
+    try {
+      final xFiles = filePaths.map((p) => XFile(p)).toList();
+      await Share.shareXFiles(
+        xFiles,
+        text: 'Shared via FastShare',
+      );
+
+      if (mounted) {
+        // Add to transfer list as completed (system handled the transfer)
+        setState(() {
+          for (final path in filePaths) {
+            final name = path.split('/').last.split('\\').last;
+            _transfers.insert(0, TransferInfo(
+              fileName: name,
+              fileSize: 0,
+              status: TransferStatus.completed,
+              isOutgoing: true,
+              progress: 1.0,
+            ));
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('System share failed: $e')),
+        );
+      }
+    }
+  }
+
+  /// Send files directly via FastShare protocol
+  Future<void> _sendFilePaths(List<String> filePaths) async {
+    if (_selectedDevice == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a device first!')),
+      );
+      return;
+    }
+
     // Add to transfers list
     setState(() {
-      for (final file in result.files) {
+      for (final path in filePaths) {
+        final name = path.split('/').last.split('\\').last;
+        final file = File(path);
         _transfers.insert(0, TransferInfo(
-          fileName: file.name,
-          fileSize: file.size ?? 0,
+          fileName: name,
+          fileSize: file.existsSync() ? file.lengthSync() : 0,
           status: TransferStatus.sending,
           isOutgoing: true,
         ));
@@ -230,7 +461,7 @@ class _HomeScreenState extends State<HomeScreen> {
       // Mark as completed
       if (mounted) {
         setState(() {
-          for (int i = 0; i < result.files.length && i < _transfers.length; i++) {
+          for (int i = 0; i < filePaths.length && i < _transfers.length; i++) {
             _transfers[i] = _transfers[i].copyWith(
               status: TransferStatus.completed,
               progress: 1.0,
@@ -261,6 +492,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _deviceSub?.cancel();
     _requestSub?.cancel();
+    _intentSub?.cancel();
     _transport.dispose();
     super.dispose();
   }
@@ -275,6 +507,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
         title: Column(
@@ -315,7 +548,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ? const Center(child: CircularProgressIndicator())
           : _buildBody(),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: _isInitialized ? _pickAndSendFiles : null,
+        onPressed: _isInitialized ? _showSendOptions : null,
         icon: const Icon(Icons.send),
         label: const Text('Send File'),
       ),
@@ -328,6 +561,24 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // Shared files banner (from Quick Share / other apps)
+          if (_sharedFiles != null && _sharedFiles!.isNotEmpty)
+            Card(
+              color: Theme.of(context).colorScheme.primaryContainer,
+              child: ListTile(
+                leading: const Icon(Icons.file_present),
+                title: Text('${_sharedFiles!.length} file(s) ready to forward'),
+                subtitle: const Text('Tap to send to a FastShare device'),
+                trailing: IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => setState(() => _sharedFiles = null),
+                ),
+                onTap: _forwardSharedFilesToDevice,
+              ),
+            ),
+          if (_sharedFiles != null && _sharedFiles!.isNotEmpty)
+            const SizedBox(height: 8),
+
           // Nearby Devices section
           Row(
             children: [
@@ -363,7 +614,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Make sure both devices are on the same Wi-Fi',
+                          'Also detects LocalSend devices!',
                           style: TextStyle(color: Colors.grey[600], fontSize: 12),
                         ),
                       ],

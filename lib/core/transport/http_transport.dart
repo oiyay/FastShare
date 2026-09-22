@@ -116,10 +116,25 @@ class HttpTransport implements TransportInterface {
     if (_selfInfo == null || _udpSocket == null) return;
 
     try {
-      final data = utf8.encode(_selfInfo!.toJsonString());
+      // === FastShare Protocol Broadcast ===
+      final fsData = utf8.encode(_selfInfo!.toJsonString());
+
+      // === LocalSend-Compatible Broadcast ===
+      // This makes us visible to LocalSend apps on the network!
+      final lsData = utf8.encode(jsonEncode({
+        'alias': _selfInfo!.name,
+        'version': '2.0',
+        'deviceModel': _selfInfo!.os,
+        'deviceType': _selfInfo!.os == 'android' ? 'mobile' : 'desktop',
+        'fingerprint': _selfInfo!.id,
+        'port': _selfInfo!.port,
+        'protocol': 'https',
+        'download': true,
+      }));
 
       // Global broadcast (works on some networks)
-      _udpSocket!.send(data, InternetAddress('255.255.255.255'), _udpPort);
+      _udpSocket!.send(fsData, InternetAddress('255.255.255.255'), _udpPort);
+      _udpSocket!.send(lsData, InternetAddress('255.255.255.255'), _udpPort);
 
       // Subnet-specific broadcasts (critical for Mobile Hotspots and Windows Multi-NIC)
       final interfaces = await NetworkInterface.list(
@@ -137,7 +152,8 @@ class HttpTransport implements TransportInterface {
               parts[3] = '255';
               final subnetBroadcast = parts.join('.');
               try {
-                _udpSocket!.send(data, InternetAddress(subnetBroadcast), _udpPort);
+                _udpSocket!.send(fsData, InternetAddress(subnetBroadcast), _udpPort);
+                _udpSocket!.send(lsData, InternetAddress(subnetBroadcast), _udpPort);
               } catch (_) {}
             }
           }
@@ -244,8 +260,9 @@ class HttpTransport implements TransportInterface {
       return shelf.Response.ok(
         jsonEncode({
           'app': 'FastShare',
-          'version': '2.0',
-          'protocol': 2,
+          'version': '2.1',
+          'protocol': 3,
+          'supported_protocols': ['fastshare', 'localsend'],
           'device_name': _selfInfo?.name ?? 'Unknown',
           'os': _selfInfo?.os ?? 'unknown',
         }),

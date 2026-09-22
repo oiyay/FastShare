@@ -209,7 +209,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ListTile(
                   leading: const Icon(Icons.rocket_launch),
                   title: const Text('FastShare'),
-                  subtitle: const Text('v1.0.3'),
+                  subtitle: const Text('v2.1.0 — Hybrid Protocol'),
                 ),
                 ListTile(
                   leading: const Icon(Icons.favorite, color: Colors.red),
