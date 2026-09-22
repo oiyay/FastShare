@@ -43,7 +43,7 @@ jobs:
         run: flutter pub get
 
       - name: Build signed APK
-        run: flutter build apk --release
+        run: flutter build apk --release --android-skip-build-dependency-validation
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -71,6 +71,9 @@ jobs:
         run: flutter pub get
 
       - name: Build Windows EXE
+        env:
+          CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
+          _CL_: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
         run: flutter build windows --release
 
       - name: Zip output
