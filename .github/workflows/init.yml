@@ -13,12 +13,17 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
           channel: 'stable'
 
       - name: Generate platform directories
         run: |
           flutter create . --project-name fast_share --org com.fastshare --platforms android,windows
+
+      - name: Fix Kotlin version
+        run: |
+          if [ -f "android/settings.gradle" ]; then
+            sed -i 's/id "org.jetbrains.kotlin.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "2.1.0"/' android/settings.gradle
+          fi
 
       - name: Commit generated files
         run: |

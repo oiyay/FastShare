@@ -18,14 +18,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: 'zulu'
           java-version: '17'
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
           channel: 'stable'
 
       - name: Generate platform files if missing
@@ -34,19 +33,32 @@ jobs:
             flutter create . --project-name fast_share --org com.fastshare --platforms android,windows
           fi
 
+      - name: Fix Kotlin version
+        run: |
+          # Update Kotlin Gradle plugin to latest compatible version
+          if [ -f "android/settings.gradle" ]; then
+            sed -i 's/id "org.jetbrains.kotlin.android" version "[^"]*"/id "org.jetbrains.kotlin.android" version "2.1.0"/' android/settings.gradle
+          fi
+          # Set compile SDK to 34 to avoid android.jar issues
+          if [ -f "android/app/build.gradle" ]; then
+            sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 34/' android/app/build.gradle
+          fi
+
       - name: Add Android permissions
         run: |
           # Add required permissions to AndroidManifest.xml
-          sed -i 's|<manifest xmlns:android|<manifest xmlns:tools="http://schemas.android.com/tools" xmlns:android|' android/app/src/main/AndroidManifest.xml
-          sed -i '/<\/manifest>/i \
-              <uses-permission android:name="android.permission.INTERNET"\/>\
-              <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"\/>\
-              <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"\/>\
-              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"\/>\
-              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"\/>\
-              <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"\/>\
-              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"\/>\
-              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"\/>' android/app/src/main/AndroidManifest.xml
+          MANIFEST="android/app/src/main/AndroidManifest.xml"
+          if ! grep -q "android.permission.INTERNET" "$MANIFEST"; then
+            sed -i '/<\/manifest>/i \
+                <uses-permission android:name="android.permission.INTERNET"\/>\
+                <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"\/>\
+                <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"\/>\
+                <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"\/>\
+                <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"\/>\
+                <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"\/>\
+                <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"\/>\
+                <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"\/>' "$MANIFEST"
+          fi
 
       - name: Install dependencies
         run: flutter pub get
@@ -64,13 +76,12 @@ jobs:
   # JOB 2: Build Windows EXE
   # ─────────────────────────────────────
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
           channel: 'stable'
 
       - name: Enable Windows desktop
@@ -92,7 +103,11 @@ jobs:
       - name: Zip output
         shell: pwsh
         run: |
-          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath FastShare-Windows.zip
+          $releasePath = "build\windows\x64\runner\Release"
+          if (!(Test-Path $releasePath)) {
+            $releasePath = "build\windows\runner\Release"
+          }
+          Compress-Archive -Path "$releasePath\*" -DestinationPath FastShare-Windows.zip
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
