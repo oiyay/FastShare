@@ -50,13 +50,13 @@ class SettingsService {
   /// Get the platform-appropriate default save path.
   static Future<String> getDefaultSavePath() async {
     if (Platform.isAndroid) {
-      final dir = await getExternalStorageDirectory();
-      return '${dir?.path ?? "/storage/emulated/0"}/FastShare';
+      // Use public Download folder so files are visible to the user
+      return '/storage/emulated/0/Download/FastShare';
     } else if (Platform.isWindows) {
       final dir = await getDownloadsDirectory();
-      return '${dir?.path ?? "C:\\Users\\Public\\Downloads"}/FastShare';
+      return '${dir?.path ?? "C:\\Users\\Public\\Downloads"}\\FastShare';
     } else {
-      final dir = await getApplicationDocumentsDirectory();
+      final dir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
       return '${dir.path}/FastShare';
     }
   }

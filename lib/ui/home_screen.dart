@@ -156,7 +156,7 @@ class _HomeScreenState extends State<HomeScreen> {
         });
       });
 
-      if (mounted) {
+      if (mounted && _settings.showNotifications) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Receiving files from ${request.senderName}...'),
@@ -237,9 +237,11 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           }
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Files sent successfully! ✅')),
-        );
+        if (_settings.showNotifications) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Files sent successfully! ✅')),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {

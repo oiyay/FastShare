@@ -372,36 +372,49 @@ class HttpTransport implements TransportInterface {
     int lastProgressReport = 0;
     const int progressThrottleMs = 100; // Report UI progress max every 100ms
 
-    // Pipe file stream with large chunks and throttled progress
-    file.openRead().listen(
-      (chunk) {
-        request.sink.add(chunk);
-        bytesSent += chunk.length;
-
-        final now = DateTime.now().millisecondsSinceEpoch;
-        if (onProgress != null && (now - lastProgressReport) >= progressThrottleMs) {
-          lastProgressReport = now;
-          onProgress(bytesSent / fileSize);
-        }
-      },
-      onDone: () {
-        onProgress?.call(1.0); // always fire 100% at end
-        request.sink.close();
-      },
-      onError: (error) {
-        request.sink.addError(error);
-      },
-      cancelOnError: true,
+    // Transform stream to track progress WHILE respecting backpressure
+    final progressStream = file.openRead().transform(
+      StreamTransformer<List<int>, List<int>>.fromHandlers(
+        handleData: (chunk, sink) {
+          bytesSent += chunk.length;
+          final now = DateTime.now().millisecondsSinceEpoch;
+          if (onProgress != null && (now - lastProgressReport) >= progressThrottleMs) {
+            lastProgressReport = now;
+            onProgress(bytesSent / fileSize);
+          }
+          sink.add(chunk); // Forward data to the HTTP sink
+        },
+      ),
     );
 
-    final response = await http.Client().send(request);
+    final client = http.Client();
+    try {
+      // IMPORTANT: We must start the HTTP send() BEFORE or CONCURRENTLY 
+      // while we add to the sink to prevent deadlocks and memory bloat.
+      final responseFuture = client.send(request);
 
-    if (response.statusCode != 200) {
-      final body = await response.stream.bytesToString();
-      throw Exception('File send failed: ${response.statusCode} - $body');
+      // addStream respects backpressure. It will automatically PAUSE reading 
+      // from the file disk if the Wi-Fi network socket is full.
+      // This guarantees the progress bar accurately reflects network speed!
+      await request.sink.addStream(progressStream);
+      request.sink.close();
+      onProgress?.call(1.0); // always fire 100% at end
+
+      final response = await responseFuture;
+
+      if (response.statusCode != 200) {
+        final body = await response.stream.bytesToString();
+        throw Exception('File send failed: ${response.statusCode} - $body');
+      }
+
+      print('[HttpTransport] Sent file: $filePath');
+    } catch (e) {
+      request.sink.addError(e);
+      request.sink.close();
+      rethrow;
+    } finally {
+      client.close();
     }
-
-    print('[HttpTransport] Sent file: $filePath');
   }
 
   // ──────────────────────────────────────────

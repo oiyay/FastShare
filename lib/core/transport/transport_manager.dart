@@ -63,6 +63,20 @@ class TransportManager {
       });
     }
 
+    // Listen to settings changes to update device name
+    settings.onSettingsChanged.listen((_) {
+      if (_selfInfo != null) {
+        final newName = settings.deviceName;
+        if (_selfInfo!.name != newName) {
+          _selfInfo = _selfInfo!.copyWith(name: newName);
+          _httpTransport.startAdvertising(_selfInfo!); // Re-broadcast immediately
+          if (NearbyTransport.isSupported) {
+            _nearbyTransport.startAdvertising(_selfInfo!);
+          }
+        }
+      }
+    });
+
     _initialized = true;
     print('[TransportManager] Initialized as ${_selfInfo!.name} ($os) at $localIp');
   }
