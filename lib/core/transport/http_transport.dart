@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:shelf/shelf.dart' as shelf;
@@ -269,9 +270,19 @@ class HttpTransport implements TransportInterface {
       int lastProgressReport = 0;
       const int progressThrottleMs = 100;
 
+      // Use a 1MB memory buffer to prevent Android FUSE filesystem bottleneck
+      // Tiny writes to /storage/emulated/0 on Android 11+ cause massive overhead.
+      final writeBuffer = BytesBuilder(copy: false);
+      const int maxBufferSize = 1024 * 1024; // 1 MB
+
       await for (final chunk in request.read()) {
-        sink.add(chunk);
+        writeBuffer.add(chunk);
         bytesReceived += chunk.length;
+
+        // Flush buffer to disk when it reaches 1MB
+        if (writeBuffer.length >= maxBufferSize) {
+          sink.add(writeBuffer.takeBytes());
+        }
 
         final now = DateTime.now().millisecondsSinceEpoch;
         if (_progressCallbacks.containsKey(token) &&
@@ -280,6 +291,11 @@ class HttpTransport implements TransportInterface {
           lastProgressReport = now;
           _progressCallbacks[token]!(fileName, bytesReceived / totalSize);
         }
+      }
+
+      // Flush any remaining data in the buffer
+      if (writeBuffer.isNotEmpty) {
+        sink.add(writeBuffer.takeBytes());
       }
 
       // Fire 100% completion
