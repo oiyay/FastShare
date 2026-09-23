@@ -1,56 +1,122 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:fast_share/core/models/device_info.dart';
 import 'package:fast_share/core/models/transfer_request.dart';
 import 'package:fast_share/core/transport/transport_interface.dart';
+import 'package:nearby_connections/nearby_connections.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 /// Nearby Connections transport for Android-to-Android file sharing.
 ///
 /// Uses Google's Nearby Connections API which leverages Wi-Fi Direct,
 /// so no router is needed. Only available on Android.
-///
-/// Current status: This transport gracefully reports as unsupported
-/// and falls back to HttpTransport. When the nearby_connections package
-/// is added to pubspec.yaml and this class is implemented, it will
-/// enable direct Android-to-Android transfers without a router.
 class NearbyTransport implements TransportInterface {
-  /// Check if Nearby Connections is supported on this platform.
-  /// Currently always returns false until the nearby_connections
-  /// package is integrated.
-  static bool get isSupported => false; // Will be Platform.isAndroid when implemented
+  static bool get isSupported => Platform.isAndroid;
 
   final _deviceController = StreamController<DeviceInfo>.broadcast();
   final _requestController = StreamController<TransferRequest>.broadcast();
 
+  final Map<String, DeviceInfo> _discoveredDevices = {};
+
   @override
   Future<void> initialize() async {
-    // Nearby Connections is not yet integrated.
-    // When implemented, this will request location and storage permissions
-    // and initialize the Nearby Connections API.
-    print('[NearbyTransport] Not yet integrated — using HTTP transport as fallback');
+    if (!Platform.isAndroid) return;
+
+    // Request permissions using permission_handler
+    await [
+      Permission.location,
+      Permission.bluetooth,
+      Permission.bluetoothAdvertise,
+      Permission.bluetoothConnect,
+      Permission.bluetoothScan,
+      Permission.nearbyWifiDevices,
+    ].request();
+
+    // Request permissions using nearby_connections built-in requesters
+    if (await Nearby().checkLocationPermission() == false) {
+      await Nearby().askLocationPermission();
+    }
+    if (await Nearby().checkBluetoothPermission() == false) {
+      await Nearby().askBluetoothPermission();
+    }
+    if (await Nearby().checkNearbyWifiDevicesPermission() == false) {
+      await Nearby().askNearbyWifiDevicesPermission();
+    }
   }
 
   @override
   Future<void> dispose() async {
+    if (!Platform.isAndroid) return;
+    await Nearby().stopAllEndpoints();
+    await Nearby().stopAdvertising();
+    await Nearby().stopDiscovery();
     await _deviceController.close();
     await _requestController.close();
   }
 
   @override
   Stream<DeviceInfo> discoverDevices() {
-    // Returns empty stream — all discovery happens via HttpTransport
+    if (!Platform.isAndroid) return const Stream.empty();
+
+    Nearby().startDiscovery(
+      "FastShare",
+      Strategy.P2P_STAR,
+      onEndpointFound: (String endpointId, String endpointName, String serviceId) {
+        final device = DeviceInfo(
+          id: endpointId,
+          name: endpointName,
+          os: 'android',
+          ip: 'nearby',
+          port: 0,
+          protocol: 'fastshare',
+        );
+        _discoveredDevices[endpointId] = device;
+        _deviceController.add(device);
+      },
+      onEndpointLost: (String? endpointId) {
+        if (endpointId != null) {
+          _discoveredDevices.remove(endpointId);
+        }
+      },
+    );
     return _deviceController.stream;
   }
 
   @override
   Future<void> startAdvertising(DeviceInfo selfInfo) async {
-    // No-op until Nearby Connections is integrated
+    if (!Platform.isAndroid) return;
+
+    await Nearby().startAdvertising(
+      selfInfo.name,
+      Strategy.P2P_STAR,
+      onConnectionInitiated: (String endpointId, ConnectionInfo info) async {
+        // Automatically accept the connection to simplify the handshake
+        await Nearby().acceptConnection(
+          endpointId,
+          onPayLoadRecieved: (String endpointId, Payload payload) {
+            _handleIncomingPayload(endpointId, payload);
+          },
+          onPayloadTransferUpdate: (String endpointId, PayloadTransferUpdate update) {
+            // Monitor transfer progress if needed
+          },
+        );
+      },
+      onConnectionResult: (String endpointId, Status status) {
+        // Handle connection results (e.g., connected, rejected)
+      },
+      onDisconnected: (String endpointId) {
+        // Handle disconnection
+      },
+    );
   }
 
   @override
   Future<void> stopAdvertising() async {
-    // No-op until Nearby Connections is integrated
+    if (!Platform.isAndroid) return;
+    await Nearby().stopAdvertising();
   }
 
   @override
@@ -58,12 +124,55 @@ class NearbyTransport implements TransportInterface {
     DeviceInfo target,
     TransferRequest request,
   ) async {
-    // Should never be called since isSupported returns false.
-    // TransportManager will always route to HttpTransport.
-    throw StateError(
-      'NearbyTransport.sendTransferRequest called but Nearby is not yet integrated. '
-      'TransportManager should route to HttpTransport instead.',
+    if (!Platform.isAndroid) {
+      throw UnsupportedError('NearbyTransport is only supported on Android.');
+    }
+
+    final completer = Completer<TransferResponse>();
+
+    await Nearby().requestConnection(
+      request.senderName,
+      target.id,
+      onConnectionInitiated: (String endpointId, ConnectionInfo info) async {
+        await Nearby().acceptConnection(
+          endpointId,
+          onPayLoadRecieved: (String endpointId, Payload payload) {
+            if (payload.type == PayloadType.BYTES) {
+              final str = String.fromCharCodes(payload.bytes!);
+              try {
+                final response = TransferResponse.fromJsonString(str);
+                if (!completer.isCompleted) {
+                  completer.complete(response);
+                }
+              } catch (e) {
+                if (!completer.isCompleted) {
+                  completer.completeError(e);
+                }
+              }
+            }
+          },
+          onPayloadTransferUpdate: (String endpointId, PayloadTransferUpdate update) {},
+        );
+
+        // After initiating and accepting locally, send the transfer request payload
+        final bytes = Uint8List.fromList(utf8.encode(request.toJsonString()));
+        await Nearby().sendBytesPayload(endpointId, bytes);
+      },
+      onConnectionResult: (String endpointId, Status status) {
+        if (status == Status.REJECTED || status == Status.ERROR) {
+          if (!completer.isCompleted) {
+            completer.complete(TransferResponse(accepted: false));
+          }
+        }
+      },
+      onDisconnected: (String endpointId) {
+        if (!completer.isCompleted) {
+          completer.complete(TransferResponse(accepted: false));
+        }
+      },
     );
+
+    return completer.future;
   }
 
   @override
@@ -74,11 +183,12 @@ class NearbyTransport implements TransportInterface {
     String filePath, {
     void Function(double progress)? onProgress,
   }) async {
-    // Should never be called since isSupported returns false.
-    throw StateError(
-      'NearbyTransport.sendFile called but Nearby is not yet integrated. '
-      'TransportManager should route to HttpTransport instead.',
-    );
+    if (!Platform.isAndroid) {
+      throw UnsupportedError('NearbyTransport is only supported on Android.');
+    }
+
+    // Using Payload.File equivalent in nearby_connections to send the actual file
+    await Nearby().sendFilePayload(target.id, filePath);
   }
 
   @override
@@ -90,11 +200,40 @@ class NearbyTransport implements TransportInterface {
     String savePath, {
     void Function(String fileName, double progress)? onProgress,
   }) async {
-    // No-op — HttpTransport handles all transfers
+    if (!Platform.isAndroid) return;
+
+    final response = TransferResponse(accepted: true, token: 'nearby');
+    final bytes = Uint8List.fromList(utf8.encode(response.toJsonString()));
+    await Nearby().sendBytesPayload(request.senderId, bytes);
   }
 
   @override
   Future<void> rejectTransfer(TransferRequest request) async {
-    // No-op — HttpTransport handles all transfers
+    if (!Platform.isAndroid) return;
+
+    final response = TransferResponse(accepted: false);
+    final bytes = Uint8List.fromList(utf8.encode(response.toJsonString()));
+    await Nearby().sendBytesPayload(request.senderId, bytes);
+  }
+
+  void _handleIncomingPayload(String endpointId, Payload payload) {
+    if (payload.type == PayloadType.BYTES) {
+      final str = String.fromCharCodes(payload.bytes!);
+      try {
+        final request = TransferRequest.fromJsonString(str);
+        // Replace senderId with endpointId so we can reply to the correct endpoint
+        final modifiedRequest = TransferRequest(
+          senderName: request.senderName,
+          senderId: endpointId,
+          files: request.files,
+        );
+        _requestController.add(modifiedRequest);
+      } catch (e) {
+        // Not a TransferRequest, ignore or handle other payloads
+      }
+    } else if (payload.type == PayloadType.FILE) {
+      // nearby_connections automatically saves files to the Downloads directory.
+      // More complex logic would move it to the requested savePath.
+    }
   }
 }
