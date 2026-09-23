@@ -269,7 +269,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _deviceSub?.cancel();
     _requestSub?.cancel();
-    _intentSub?.cancel();
     _transport.dispose();
     super.dispose();
   }

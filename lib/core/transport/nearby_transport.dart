@@ -34,17 +34,6 @@ class NearbyTransport implements TransportInterface {
       Permission.bluetoothScan,
       Permission.nearbyWifiDevices,
     ].request();
-
-    // Request permissions using nearby_connections built-in requesters
-    if (await Nearby().checkLocationPermission() == false) {
-      await Nearby().askLocationPermission();
-    }
-    if (await Nearby().checkBluetoothPermission() == false) {
-      await Nearby().askBluetoothPermission();
-    }
-    if (await Nearby().checkNearbyWifiDevicesPermission() == false) {
-      await Nearby().askNearbyWifiDevicesPermission();
-    }
   }
 
   @override

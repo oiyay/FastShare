@@ -11,6 +11,14 @@ rootProject.layout.buildDirectory.value(newBuildDir)
 subprojects {
     val newSubprojectBuildDir: Directory = newBuildDir.dir(project.name)
     project.layout.buildDirectory.value(newSubprojectBuildDir)
+    
+    plugins.withId("com.android.library") {
+        configure<com.android.build.gradle.LibraryExtension> {
+            if (namespace == null) {
+                namespace = "com.legacy.${project.name.replace('-', '_')}"
+            }
+        }
+    }
 }
 subprojects {
     project.evaluationDependsOn(":app")
