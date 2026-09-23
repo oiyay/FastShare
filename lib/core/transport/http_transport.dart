@@ -426,14 +426,15 @@ class HttpTransport implements TransportInterface {
     final filePath = '$savePath/$fileName';
 
     try {
-      // Ensure save directory exists (may fail without storage permission!)
-      final dir = Directory(savePath);
-      if (!await dir.exists()) {
-        await dir.create(recursive: true);
+      // Ensure the parent directory of the file exists!
+      // This is crucial if fileName contains subdirectories (e.g. 'MyFolder/photo.jpg')
+      final file = File(filePath);
+      final parentDir = file.parent;
+      if (!await parentDir.exists()) {
+        await parentDir.create(recursive: true);
       }
 
       // STREAMING: Write directly to disk, never load full file to memory
-      final file = File(filePath);
       final sink = file.openWrite();
       final totalSize = request.contentLength ?? 1;
       int bytesReceived = 0;
