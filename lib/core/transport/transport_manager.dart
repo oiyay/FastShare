@@ -8,17 +8,19 @@ import 'package:fast_share/core/models/transfer_request.dart';
 import 'package:fast_share/core/services/settings_service.dart';
 import 'package:fast_share/core/transport/transport_interface.dart';
 import 'package:fast_share/core/transport/http_transport.dart';
+import 'package:fast_share/core/transport/localsend_transport.dart';
 import 'package:fast_share/core/transport/nearby_transport.dart';
 
 /// Smart transport manager that auto-selects the best transport.
 ///
 /// Logic:
 /// - Android <-> Android: Use NearbyTransport (Wi-Fi Direct, no router needed)
-/// - Android <-> Windows: Use HttpTransport (via local network)
-/// - Windows <-> Windows: Use HttpTransport (via local network)
+/// - Target is LocalSend: Use LocalSendTransport
+/// - Target is FastShare (Windows <-> Android/Windows): Use HttpTransport
 class TransportManager {
   final HttpTransport _httpTransport = HttpTransport();
   final NearbyTransport _nearbyTransport = NearbyTransport();
+  final LocalSendTransport _localSendTransport = LocalSendTransport();
 
   final _deviceController = StreamController<DeviceInfo>.broadcast();
   final _requestController = StreamController<TransferRequest>.broadcast();
@@ -30,10 +32,9 @@ class TransportManager {
   Future<void> initialize() async {
     if (_initialized) return;
 
-    // Always initialize HTTP transport (works everywhere)
     await _httpTransport.initialize();
+    await _localSendTransport.initialize();
 
-    // Build self info
     final localIp = await HttpTransport.getLocalIp();
     final settings = SettingsService();
     final deviceName = settings.deviceName;
@@ -47,29 +48,22 @@ class TransportManager {
       port: _httpTransport.httpPort,
     );
 
-    // Initialize Nearby only on Android
     if (NearbyTransport.isSupported) {
       await _nearbyTransport.initialize();
     }
 
-    // Merge incoming request streams
-    _httpTransport.incomingRequests.listen((req) {
-      _requestController.add(req);
-    });
-
+    _httpTransport.incomingRequests.listen((req) => _requestController.add(req));
+    _localSendTransport.incomingRequests.listen((req) => _requestController.add(req));
     if (NearbyTransport.isSupported) {
-      _nearbyTransport.incomingRequests.listen((req) {
-        _requestController.add(req);
-      });
+      _nearbyTransport.incomingRequests.listen((req) => _requestController.add(req));
     }
 
-    // Listen to settings changes to update device name
     settings.onSettingsChanged.listen((_) {
       if (_selfInfo != null) {
         final newName = settings.deviceName;
         if (_selfInfo!.name != newName) {
           _selfInfo = _selfInfo!.copyWith(name: newName);
-          _httpTransport.startAdvertising(_selfInfo!); // Re-broadcast immediately
+          _httpTransport.startAdvertising(_selfInfo!);
           if (NearbyTransport.isSupported) {
             _nearbyTransport.startAdvertising(_selfInfo!);
           }
@@ -85,15 +79,11 @@ class TransportManager {
   Future<void> startDiscovery() async {
     if (_selfInfo == null) return;
 
-    // Start advertising on HTTP
     await _httpTransport.startAdvertising(_selfInfo!);
-
-    // Listen for HTTP-discovered devices
     _httpTransport.discoverDevices().listen((device) {
       _deviceController.add(device);
     });
 
-    // Also start Nearby discovery if on Android
     if (NearbyTransport.isSupported) {
       await _nearbyTransport.startAdvertising(_selfInfo!);
       _nearbyTransport.discoverDevices().listen((device) {
@@ -128,10 +118,6 @@ class TransportManager {
   }) async {
     if (_selfInfo == null) throw StateError('TransportManager not initialized');
     
-    if (target.protocol == 'localsend') {
-      throw Exception('Hybrid Sending to LocalSend devices is coming in a future update! For now, FastShare can only detect them.');
-    }
-
     // Choose transport
     final transport = _selectTransport(target);
 
@@ -204,6 +190,11 @@ class TransportManager {
 
   /// Select the best transport for the given target device.
   TransportInterface _selectTransport(DeviceInfo target) {
+    if (target.protocol == 'localsend') {
+      print('[TransportManager] Using LocalSend transport');
+      return _localSendTransport;
+    }
+
     // Use Nearby Connections if both devices are Android and Nearby is available
     if (NearbyTransport.isSupported && target.os == 'android') {
       print('[TransportManager] Using Nearby Connections (Android-to-Android)');
@@ -229,6 +220,7 @@ class TransportManager {
     await stopDiscovery();
     await _httpTransport.dispose();
     await _nearbyTransport.dispose();
+    await _localSendTransport.dispose();
     await _deviceController.close();
     await _requestController.close();
   }
