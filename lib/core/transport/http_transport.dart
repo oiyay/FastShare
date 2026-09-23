@@ -40,6 +40,7 @@ class HttpTransport implements TransportInterface {
   final Map<String, Completer<TransferResponse>> _pendingRequests = {};
   final Map<String, String> _acceptedTokens = {}; // token -> savePath
   final Map<String, void Function(String fileName, double progress)> _progressCallbacks = {};
+  final Map<String, String> _localSendFileNames = {}; // fileId -> fileName
 
   @override
   Future<void> initialize() async {
@@ -136,7 +137,7 @@ class HttpTransport implements TransportInterface {
         'deviceType': _selfInfo!.os == 'android' ? 'mobile' : 'desktop',
         'fingerprint': _selfInfo!.id,
         'port': _selfInfo!.port,
-        'protocol': 'https',
+        'protocol': 'http',
         'download': true,
       }));
 
@@ -277,6 +278,25 @@ class HttpTransport implements TransportInterface {
         headers: {'Content-Type': 'application/json'},
       );
     }
+    if (request.method == 'GET' && path == 'api/localsend/v2/info') {
+      return shelf.Response.ok(
+        jsonEncode({
+          'alias': _selfInfo?.name,
+          'version': '2.0',
+          'deviceModel': _selfInfo?.os,
+          'deviceType': 'desktop',
+          'fingerprint': _selfInfo?.id,
+          'download': true,
+        }),
+        headers: {'Content-Type': 'application/json'},
+      );
+    }
+    if (request.method == 'POST' && path == 'api/localsend/v2/prepare-upload') {
+      return _handleLocalSendPrepareUpload(request);
+    }
+    if (request.method == 'POST' && path == 'api/localsend/v2/upload') {
+      return _handleLocalSendUpload(request);
+    }
 
     return shelf.Response.notFound('Not found');
   }
@@ -321,6 +341,87 @@ class HttpTransport implements TransportInterface {
       return shelf.Response.forbidden(jsonEncode({'error': 'Invalid token'}));
     }
 
+    return _processFileStream(request, token, fileId, fileName);
+  }
+
+  Future<shelf.Response> _handleLocalSendPrepareUpload(shelf.Request request) async {
+    try {
+      final body = await request.readAsString();
+      final data = jsonDecode(body) as Map<String, dynamic>;
+      
+      final info = data['info'] as Map<String, dynamic>;
+      final files = data['files'] as Map<String, dynamic>;
+
+      final senderName = info['alias'] as String? ?? 'LocalSend Device';
+      final senderId = info['fingerprint'] as String? ?? _uuid.v4();
+      
+      final transferFiles = <FileMetadata>[];
+      for (final entry in files.entries) {
+        final fileMap = entry.value as Map<String, dynamic>;
+        final id = fileMap['id'] ?? entry.key;
+        final name = fileMap['fileName'] ?? 'unknown';
+        _localSendFileNames[id] = name;
+        transferFiles.add(FileMetadata(
+          id: id,
+          name: name,
+          size: fileMap['size'] ?? 0,
+        ));
+      }
+
+      final transferRequest = TransferRequest(
+        senderName: senderName,
+        senderId: senderId,
+        files: transferFiles,
+      );
+
+      final completer = Completer<TransferResponse>();
+      _pendingRequests[senderId] = completer;
+
+      _requestController.add(transferRequest);
+
+      final response = await completer.future.timeout(
+        Duration(seconds: 60),
+        onTimeout: () => TransferResponse(accepted: false),
+      );
+
+      if (!response.accepted) {
+        return shelf.Response.forbidden('Rejected');
+      }
+
+      final sessionId = _uuid.v4();
+      final responseFiles = <String, String>{};
+      for (final fileId in files.keys) {
+        responseFiles[fileId] = response.token!;
+      }
+
+      return shelf.Response.ok(
+        jsonEncode({
+          'sessionId': sessionId,
+          'files': responseFiles,
+        }),
+        headers: {'Content-Type': 'application/json'},
+      );
+    } catch (e) {
+      return shelf.Response.internalServerError(
+        body: jsonEncode({'error': e.toString()}),
+      );
+    }
+  }
+
+  Future<shelf.Response> _handleLocalSendUpload(shelf.Request request) async {
+    final token = request.url.queryParameters['token'];
+    final fileId = request.url.queryParameters['fileId'];
+
+    if (token == null || !_acceptedTokens.containsKey(token)) {
+      return shelf.Response.forbidden(jsonEncode({'error': 'Invalid token'}));
+    }
+
+    final fileName = _localSendFileNames[fileId] ?? 'unknown_file';
+    return _processFileStream(request, token, fileId, fileName);
+  }
+
+  Future<shelf.Response> _processFileStream(
+      shelf.Request request, String token, String? fileId, String? fileName) async {
     final savePath = _acceptedTokens[token]!;
     final filePath = '$savePath/$fileName';
 
