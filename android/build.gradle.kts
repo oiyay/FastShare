@@ -15,7 +15,11 @@ subprojects {
     plugins.withId("com.android.library") {
         configure<com.android.build.gradle.LibraryExtension> {
             if (namespace == null) {
-                namespace = "com.legacy.${project.name.replace('-', '_')}"
+                if (project.name == "nearby_connections") {
+                    namespace = "com.pkmnapps.nearby_connections"
+                } else {
+                    namespace = "com.legacy.${project.name.replace('-', '_')}"
+                }
             }
         }
     }
