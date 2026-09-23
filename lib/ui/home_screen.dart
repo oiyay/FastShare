@@ -300,8 +300,18 @@ class _HomeScreenState extends State<HomeScreen> {
           // Refresh button
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _isInitialized ? () {
-              setState(() => _devices.clear());
+            onPressed: _isInitialized ? () async {
+              setState(() {
+                _devices.clear();
+                _isLoading = true; // Show loading spinner
+              });
+              
+              // Trigger a fresh HTTP sweep and UDP search
+              _transport.refreshDiscovery();
+              
+              if (mounted) {
+                setState(() => _isLoading = false);
+              }
             } : null,
             tooltip: 'Refresh devices',
           ),

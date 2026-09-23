@@ -92,6 +92,11 @@ class TransportManager {
     }
   }
 
+  /// Trigger a manual refresh for devices
+  void refreshDiscovery() {
+    _httpTransport.refreshDiscovery();
+  }
+
   /// Stop all discovery and advertising.
   Future<void> stopDiscovery() async {
     await _httpTransport.stopAdvertising();

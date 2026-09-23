@@ -63,7 +63,13 @@ class HttpTransport implements TransportInterface {
   @override
   Stream<DeviceInfo> discoverDevices() {
     _startUdpDiscovery();
+    _startHttpSweep(); // Aggressively sweep for LocalSend devices
     return _deviceController.stream;
+  }
+
+  void refreshDiscovery() {
+    _startHttpSweep();
+    _sendBroadcast();
   }
 
   @override
@@ -231,6 +237,53 @@ class HttpTransport implements TransportInterface {
     }
   }
 
+  /// Actively sweep the subnet for LocalSend devices.
+  /// This overcomes networks that completely block UDP broadcasts.
+  void _startHttpSweep() async {
+    final localIp = await getLocalIp();
+    if (localIp == '0.0.0.0') return;
+
+    final parts = localIp.split('.');
+    if (parts.length != 4) return;
+    
+    final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
+    print('[HttpTransport] Starting aggressive HTTP sweep on $prefix.0/24');
+
+    // Sweep 1..254 concurrently
+    for (int i = 1; i <= 254; i++) {
+      final targetIp = '$prefix.$i';
+      if (targetIp == localIp) continue;
+      
+      _pingLocalSendDevice(targetIp);
+    }
+  }
+
+  Future<void> _pingLocalSendDevice(String ip) async {
+    try {
+      final uri = Uri.parse('http://$ip:53317/api/localsend/v2/info');
+      final response = await http.get(uri).timeout(const Duration(milliseconds: 1500));
+      
+      if (response.statusCode == 200) {
+        final json = jsonDecode(response.body) as Map<String, dynamic>;
+        final device = DeviceInfo(
+          id: json['fingerprint'] ?? 'localsend-$ip',
+          name: '${json['alias'] ?? 'LocalSend Device'}',
+          os: (json['deviceModel'] ?? 'Unknown').toString().toLowerCase(),
+          ip: ip,
+          port: json['port'] ?? 53317,
+          protocol: 'localsend',
+        );
+
+        final updated = device.copyWith(lastSeen: DateTime.now());
+        _discoveredDevices[updated.id] = updated;
+        _deviceController.add(updated);
+        print('[HttpTransport] HTTP Sweep found LocalSend at $ip');
+      }
+    } catch (_) {
+      // Ignore timeouts and connection refused
+    }
+  }
+
   // ──────────────────────────────────────────
   // HTTP SERVER (Receiving files)
   // ──────────────────────────────────────────
@@ -297,8 +350,44 @@ class HttpTransport implements TransportInterface {
     if (request.method == 'POST' && path == 'api/localsend/v2/upload') {
       return _handleLocalSendUpload(request);
     }
+    if (request.method == 'POST' && path == 'api/localsend/v2/register') {
+      return _handleLocalSendRegister(request);
+    }
 
     return shelf.Response.notFound('Not found');
+  }
+
+  Future<shelf.Response> _handleLocalSendRegister(shelf.Request request) async {
+    try {
+      final body = await request.readAsString();
+      final json = jsonDecode(body) as Map<String, dynamic>;
+
+      final device = DeviceInfo(
+        id: json['fingerprint'] ?? 'localsend-unknown',
+        name: '${json['alias'] ?? 'LocalSend Device'}',
+        os: (json['deviceModel'] ?? 'Unknown').toString().toLowerCase(),
+        ip: request.context['shelf.io.connection_info'] != null 
+             ? (request.context['shelf.io.connection_info'] as HttpConnectionInfo).remoteAddress.address 
+             : '',
+        port: json['port'] ?? 53317,
+        protocol: 'localsend',
+      );
+
+      // Only add if we got a valid IP
+      if (device.ip.isNotEmpty) {
+        final updated = device.copyWith(lastSeen: DateTime.now());
+        _discoveredDevices[updated.id] = updated;
+        _deviceController.add(updated);
+        print('[HttpTransport] Registered LocalSend device via HTTP: ${device.name} at ${device.ip}');
+      }
+
+      return shelf.Response.ok(
+        jsonEncode({'status': 'ok'}),
+        headers: {'Content-Type': 'application/json'},
+      );
+    } catch (e) {
+      return shelf.Response.internalServerError();
+    }
   }
 
   /// Handle incoming transfer request (handshake).
