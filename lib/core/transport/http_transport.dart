@@ -86,6 +86,14 @@ class HttpTransport implements TransportInterface {
         reusePort: true,
       );
       _udpSocket!.broadcastEnabled = true;
+      _udpSocket!.multicastHops = 10;
+      
+      try {
+        // Join LocalSend's specific multicast group
+        _udpSocket!.joinMulticast(InternetAddress('224.0.0.167'));
+      } catch (e) {
+        print('[HttpTransport] Multicast join failed: $e');
+      }
 
       _udpSocket!.listen((event) {
         if (event == RawSocketEvent.read) {
