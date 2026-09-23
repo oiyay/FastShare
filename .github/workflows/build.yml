@@ -11,6 +11,8 @@ jobs:
   # ─────────────────────────────────────
   build-android:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -42,23 +44,25 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Install Android SDK 37
-        run: echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-37"
+      - name: Install Android SDK 35
+        run: echo "y" | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-35"
 
       - name: Build signed APK
         run: flutter build apk --release --android-skip-build-dependency-validation
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - name: Upload to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
         with:
-          name: FastShare-Android
-          path: build/app/outputs/flutter-apk/app-release.apk
+          files: build/app/outputs/flutter-apk/app-release.apk
 
   # ─────────────────────────────────────
   # JOB 2: Build Windows EXE
   # ─────────────────────────────────────
   build-windows:
     runs-on: windows-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -85,35 +89,8 @@ jobs:
           Rename-Item -Path "build\windows\x64\runner\Release" -NewName "FastShare"
           Compress-Archive -Path build\windows\x64\runner\FastShare -DestinationPath FastShare-Windows.zip
 
-      - name: Upload EXE
-        uses: actions/upload-artifact@v4
-        with:
-          name: FastShare-Windows
-          path: FastShare-Windows.zip
-
-  # ─────────────────────────────────────
-  # JOB 3: Publish to GitHub Release
-  # ─────────────────────────────────────
-  publish:
-    needs: [build-android, build-windows]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'release'
-    permissions:
-      contents: write
-    steps:
-      - name: Download Android artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: FastShare-Android
-
-      - name: Download Windows artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: FastShare-Windows
-
       - name: Upload to GitHub Release
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            app-release.apk
-            FastShare-Windows.zip
+          files: FastShare-Windows.zip
