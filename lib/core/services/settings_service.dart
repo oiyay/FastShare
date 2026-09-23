@@ -62,10 +62,38 @@ class SettingsService {
   }
 
   /// Get the effective save path (custom or default).
+  /// Falls back to app-private storage if public folder isn't writable.
   Future<String> getEffectiveSavePath() async {
     final custom = savePath;
-    if (custom.isNotEmpty) return custom;
-    return getDefaultSavePath();
+    if (custom.isNotEmpty) {
+      // Verify the custom path is writable
+      try {
+        final dir = Directory(custom);
+        await dir.create(recursive: true);
+        return custom;
+      } catch (_) {
+        // Custom path not writable, fall back to default
+      }
+    }
+
+    final defaultPath = await getDefaultSavePath();
+
+    // Verify the default path is writable
+    try {
+      final dir = Directory(defaultPath);
+      await dir.create(recursive: true);
+      return defaultPath;
+    } catch (_) {
+      // Default path not writable (no MANAGE_EXTERNAL_STORAGE permission)
+      // Fall back to app-private storage
+      if (Platform.isAndroid) {
+        final appDir = await getExternalStorageDirectory();
+        final fallback = '${appDir?.path ?? "/data/local/tmp"}/FastShare';
+        await Directory(fallback).create(recursive: true);
+        return fallback;
+      }
+      return defaultPath; // On other platforms, just return default
+    }
   }
 
   // ── Auto Accept ──────────────────────────

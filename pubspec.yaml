@@ -18,6 +18,7 @@ dependencies:
   shared_preferences: ^2.2.3
   share_plus: ^10.0.0
   receive_sharing_intent: ^1.8.1
+  permission_handler: ^11.3.1
   # nearby_connections: ^4.1.1  # Note: Add back when implementing Android-to-Android
 
 dev_dependencies:
