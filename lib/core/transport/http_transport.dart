@@ -143,6 +143,7 @@ class HttpTransport implements TransportInterface {
         'deviceType': _selfInfo!.os == 'android' ? 'mobile' : 'desktop',
         'fingerprint': _selfInfo!.id,
         'port': _selfInfo!.port,
+        if (_selfInfo!.tcpPort != null) 'tcp_port': _selfInfo!.tcpPort,
         'protocol': 'http',
         'download': true,
       }));
@@ -197,6 +198,7 @@ class HttpTransport implements TransportInterface {
           os: (json['deviceModel'] ?? 'Unknown').toString().toLowerCase(),
           ip: datagram.address.address,
           port: json['port'] ?? 53317,
+          tcpPort: json['tcp_port'],
           protocol: 'localsend',
         );
       } else {
@@ -280,6 +282,7 @@ class HttpTransport implements TransportInterface {
             os: (json['deviceModel'] ?? 'Unknown').toString().toLowerCase(),
             ip: ip,
             port: json['port'] ?? 53317,
+            tcpPort: json['tcp_port'],
             protocol: 'localsend',
           );
 
@@ -419,6 +422,7 @@ class HttpTransport implements TransportInterface {
              ? (request.context['shelf.io.connection_info'] as HttpConnectionInfo).remoteAddress.address 
              : '',
         port: json['port'] ?? 53317,
+        tcpPort: json['tcp_port'],
         protocol: 'localsend',
       );
 

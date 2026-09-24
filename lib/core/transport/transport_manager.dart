@@ -11,17 +11,15 @@ import 'package:fast_share/core/transport/transport_interface.dart';
 import 'package:fast_share/core/transport/http_transport.dart';
 import 'package:fast_share/core/transport/localsend_transport.dart';
 import 'package:fast_share/core/transport/nearby_transport.dart';
-
-/// Smart transport manager that auto-selects the best transport.
-///
-/// Logic:
-/// - Android <-> Android: Use NearbyTransport (Wi-Fi Direct, no router needed)
+import 'package:fast_share/core/transport/fastshare_tcp_transport.dart';
 /// - Target is LocalSend: Use LocalSendTransport
-/// - Target is FastShare (Windows <-> Android/Windows): Use HttpTransport
+/// - Target is FastShare: Use FastShareTcpTransport (Raw TCP Frame Protocol)
+/// - Android <-> Android offline fallback: Use NearbyTransport
 class TransportManager {
   final HttpTransport _httpTransport = HttpTransport();
   final NearbyTransport _nearbyTransport = NearbyTransport();
   final LocalSendTransport _localSendTransport = LocalSendTransport();
+  final FastShareTcpTransport _tcpTransport = FastShareTcpTransport();
 
   final _deviceController = StreamController<DeviceInfo>.broadcast();
   final _requestController = StreamController<TransferRequest>.broadcast();
@@ -33,6 +31,7 @@ class TransportManager {
   Future<void> initialize() async {
     if (_initialized) return;
 
+    await _tcpTransport.initialize();
     await _httpTransport.initialize();
     await _localSendTransport.initialize();
 
@@ -42,11 +41,12 @@ class TransportManager {
     final os = _getCurrentOS();
 
     _selfInfo = DeviceInfo(
-      id: Uuid().v4(),
+      id: const Uuid().v4(),
       name: deviceName.isNotEmpty ? deviceName : 'FastShare Device',
       os: os,
       ip: localIp,
       port: _httpTransport.httpPort,
+      tcpPort: _tcpTransport.tcpPort,
     );
 
     if (NearbyTransport.isSupported) {
@@ -55,6 +55,7 @@ class TransportManager {
 
     _httpTransport.incomingRequests.listen((req) => _requestController.add(req));
     _localSendTransport.incomingRequests.listen((req) => _requestController.add(req));
+    _tcpTransport.incomingRequests.listen((req) => _requestController.add(req));
     if (NearbyTransport.isSupported) {
       _nearbyTransport.incomingRequests.listen((req) => _requestController.add(req));
     }
@@ -180,7 +181,8 @@ class TransportManager {
     String savePath, {
     void Function(String fileName, double progress)? onProgress,
   }) async {
-    // Try both transports — only the one with the pending request will act
+    // Try all transports — only the one with the pending request will act
+    await _tcpTransport.acceptTransfer(request, savePath, onProgress: onProgress);
     await _httpTransport.acceptTransfer(request, savePath, onProgress: onProgress);
     if (NearbyTransport.isSupported) {
       await _nearbyTransport.acceptTransfer(request, savePath, onProgress: onProgress);
@@ -189,6 +191,7 @@ class TransportManager {
 
   /// Reject an incoming transfer request.
   Future<void> rejectTransfer(TransferRequest request) async {
+    await _tcpTransport.rejectTransfer(request);
     await _httpTransport.rejectTransfer(request);
     if (NearbyTransport.isSupported) {
       await _nearbyTransport.rejectTransfer(request);
@@ -202,14 +205,19 @@ class TransportManager {
       return _localSendTransport;
     }
 
+    if (target.protocol == 'fastshare' && target.tcpPort != null) {
+      print('[TransportManager] Using FastShare Raw TCP protocol');
+      return _tcpTransport;
+    }
+
     // Use Nearby Connections if both devices are Android and Nearby is available
     if (NearbyTransport.isSupported && target.os == 'android') {
       print('[TransportManager] Using Nearby Connections (Android-to-Android)');
       return _nearbyTransport;
     }
 
-    // Default: HTTP transport (works everywhere)
-    print('[TransportManager] Using HTTP transport');
+    // Default: HTTP transport (fallback)
+    print('[TransportManager] Using HTTP transport (fallback)');
     return _httpTransport;
   }
 
@@ -225,6 +233,7 @@ class TransportManager {
   /// Clean up all resources.
   Future<void> dispose() async {
     await stopDiscovery();
+    await _tcpTransport.dispose();
     await _httpTransport.dispose();
     await _nearbyTransport.dispose();
     await _localSendTransport.dispose();

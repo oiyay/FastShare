@@ -6,7 +6,8 @@ class DeviceInfo {
   final String name;
   final String os; // 'android', 'windows', 'linux', 'macos', 'ios'
   final String ip;
-  final int port;
+  final int port; // HTTP port
+  final int? tcpPort; // Raw TCP port for fastshare protocol
   final String protocol; // 'fastshare', 'localsend'
   final DateTime lastSeen;
 
@@ -16,6 +17,7 @@ class DeviceInfo {
     required this.os,
     required this.ip,
     required this.port,
+    this.tcpPort,
     this.protocol = 'fastshare',
     DateTime? lastSeen,
   }) : lastSeen = lastSeen ?? DateTime.now();
@@ -26,6 +28,7 @@ class DeviceInfo {
     String? os,
     String? ip,
     int? port,
+    int? tcpPort,
     String? protocol,
     DateTime? lastSeen,
   }) {
@@ -35,6 +38,7 @@ class DeviceInfo {
       os: os ?? this.os,
       ip: ip ?? this.ip,
       port: port ?? this.port,
+      tcpPort: tcpPort ?? this.tcpPort,
       protocol: protocol ?? this.protocol,
       lastSeen: lastSeen ?? this.lastSeen,
     );
@@ -48,6 +52,7 @@ class DeviceInfo {
         'os': os,
         'ip': ip,
         'port': port,
+        if (tcpPort != null) 'tcp_port': tcpPort,
         'protocol': protocol,
       };
 
@@ -58,6 +63,7 @@ class DeviceInfo {
       os: json['os'] as String,
       ip: json['ip'] as String,
       port: json['port'] as int,
+      tcpPort: json['tcp_port'] as int?,
       protocol: (json['protocol'] as String?) ?? 'fastshare',
     );
   }
