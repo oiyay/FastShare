@@ -8,7 +8,7 @@ environment:
 
 dependencies:
   supabase_flutter: ^2.6.0
-  flutter_webrtc: ^0.11.7
+  flutter_webrtc: ^1.6.2
   archive: ^3.6.1
   open_filex: ^4.5.3
   crypto: ^3.0.3
