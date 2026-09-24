@@ -55,19 +55,20 @@ class SignalingService {
       final state = _channel!.presenceState();
       final users = <GlobalUser>[];
       
-      for (final presence in state) {
-        final payload = presence.payload;
-        if (payload == null) continue;
-        
-        final pUid = payload['uid'] as String?;
-        final pUsername = payload['username'] as String?;
-        
-        if (pUid != null && pUsername != null && pUid != _uid) {
-          users.add(GlobalUser(
-            uid: pUid,
-            username: pUsername,
-            lastActive: DateTime.now(),
-          ));
+      for (final clientState in state) {
+        for (final presence in clientState.presences) {
+          final payload = presence.payload;
+          
+          final pUid = payload['uid'] as String?;
+          final pUsername = payload['username'] as String?;
+          
+          if (pUid != null && pUsername != null && pUid != _uid) {
+            users.add(GlobalUser(
+              uid: pUid,
+              username: pUsername,
+              lastActive: DateTime.now(),
+            ));
+          }
         }
       }
       _usersController.add(users);
