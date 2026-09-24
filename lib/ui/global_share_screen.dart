@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart' as file_picker;
+import 'package:fast_share/core/models/device_info.dart';
+import 'package:fast_share/core/transport/transport_manager.dart';
 import 'package:fast_share/core/services/signaling_service.dart';
 
 class GlobalShareScreen extends StatefulWidget {
@@ -109,10 +112,37 @@ class _GlobalShareScreenState extends State<GlobalShareScreen> {
                                 title: Text(user.username, style: const TextStyle(fontWeight: FontWeight.bold)),
                                 subtitle: const Text('Ready to receive files'),
                                 trailing: ElevatedButton(
-                                  onPressed: () {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('WebRTC Engine not connected yet! Coming soon.')),
-                                    );
+                                  onPressed: () async {
+                                    final result = await file_picker.FilePicker.platform.pickFiles(allowMultiple: true);
+                                    if (result != null && result.paths.isNotEmpty) {
+                                      final target = DeviceInfo(
+                                        id: user.uid,
+                                        name: user.username,
+                                        os: 'global',
+                                        ip: '0.0.0.0', // Not used for WebRTC
+                                        port: 0,
+                                        protocol: 'webrtc',
+                                      );
+                                      
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(content: Text('Connecting to ${user.username}...')),
+                                      );
+                                      
+                                      try {
+                                        await TransportManager().sendFiles(
+                                          target,
+                                          result.paths.where((p) => p != null).cast<String>().toList(),
+                                          onProgress: (p) => print('Progress: $p'),
+                                        );
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Global transfer complete!')),
+                                        );
+                                      } catch (e) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          SnackBar(content: Text('Failed: $e')),
+                                        );
+                                      }
+                                    }
                                   },
                                   child: const Text('Send'),
                                 ),

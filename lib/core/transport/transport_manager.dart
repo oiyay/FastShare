@@ -1,3 +1,4 @@
+import 'package:fast_share/core/transport/webrtc_transport.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -20,6 +21,7 @@ class TransportManager {
   final NearbyTransport _nearbyTransport = NearbyTransport();
   final LocalSendTransport _localSendTransport = LocalSendTransport();
   final FastShareTcpTransport _tcpTransport = FastShareTcpTransport();
+  final WebRtcTransport _webrtcTransport = WebRtcTransport();
 
   final _deviceController = StreamController<DeviceInfo>.broadcast();
   final _requestController = StreamController<TransferRequest>.broadcast();
@@ -34,6 +36,7 @@ class TransportManager {
     await _tcpTransport.initialize();
     await _httpTransport.initialize();
     await _localSendTransport.initialize();
+    await _webrtcTransport.initialize();
 
     final localIp = await HttpTransport.getLocalIp();
     final settings = SettingsService();
@@ -56,6 +59,7 @@ class TransportManager {
     _httpTransport.incomingRequests.listen((req) => _requestController.add(req));
     _localSendTransport.incomingRequests.listen((req) => _requestController.add(req));
     _tcpTransport.incomingRequests.listen((req) => _requestController.add(req));
+    _webrtcTransport.incomingRequests.listen((req) => _requestController.add(req));
     if (NearbyTransport.isSupported) {
       _nearbyTransport.incomingRequests.listen((req) => _requestController.add(req));
     }
@@ -184,6 +188,7 @@ class TransportManager {
     // Try all transports — only the one with the pending request will act
     await _tcpTransport.acceptTransfer(request, savePath, onProgress: onProgress);
     await _httpTransport.acceptTransfer(request, savePath, onProgress: onProgress);
+    await _webrtcTransport.acceptTransfer(request, savePath, onProgress: onProgress);
     if (NearbyTransport.isSupported) {
       await _nearbyTransport.acceptTransfer(request, savePath, onProgress: onProgress);
     }
@@ -193,6 +198,7 @@ class TransportManager {
   Future<void> rejectTransfer(TransferRequest request) async {
     await _tcpTransport.rejectTransfer(request);
     await _httpTransport.rejectTransfer(request);
+    await _webrtcTransport.rejectTransfer(request);
     if (NearbyTransport.isSupported) {
       await _nearbyTransport.rejectTransfer(request);
     }
@@ -200,6 +206,11 @@ class TransportManager {
 
   /// Select the best transport for the given target device.
   TransportInterface _selectTransport(DeviceInfo target) {
+    if (target.protocol == 'webrtc') {
+      print('[TransportManager] Using WebRTC transport for Global P2P');
+      return _webrtcTransport;
+    }
+
     if (target.protocol == 'localsend') {
       print('[TransportManager] Using LocalSend transport');
       return _localSendTransport;

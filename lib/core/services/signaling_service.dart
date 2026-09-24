@@ -20,24 +20,22 @@ class SignalingService {
   
   User? _currentUser;
   String? get uid => _currentUser?.uid;
+  String? _username;
 
   Future<void> initialize() async {
-    // 1. Anonymous Login
     final userCred = await _auth.signInAnonymously();
     _currentUser = userCred.user;
     if (_currentUser == null) throw Exception("Failed to login anonymously");
 
-    // 2. Register user in DB
-    final username = '@${SettingsService().deviceName.replaceAll(' ', '_').toLowerCase()}';
+    _username = '@${SettingsService().deviceName.replaceAll(' ', '_').toLowerCase()}';
     final userRef = _db.child('users/${_currentUser!.uid}');
     
     await userRef.set({
-      'username': username,
+      'username': _username,
       'status': 'online',
       'timestamp': ServerValue.timestamp,
     });
 
-    // 3. Auto-delete (Ghost detection) on disconnect
     userRef.onDisconnect().remove();
   }
 
@@ -47,7 +45,7 @@ class SignalingService {
       final data = event.snapshot.value as Map<dynamic, dynamic>?;
       if (data != null) {
         data.forEach((key, value) {
-          if (key != uid) { // Exclude self
+          if (key != uid) {
             users.add(GlobalUser(
               key.toString(),
               value['username'].toString(),
@@ -59,15 +57,52 @@ class SignalingService {
       return users;
     });
   }
+
+  // WEBRTC SIGNALING METHODS
   
-  // Gets a reference to a specific call room
-  DatabaseReference getCallRoom(String targetUid, String roomId) {
-    return _db.child('signaling/$targetUid/incoming_calls/$roomId');
-  }
-  
-  // Listen to my own incoming calls
   Stream<DatabaseEvent> get incomingCalls {
     if (uid == null) return const Stream.empty();
     return _db.child('signaling/$uid/incoming_calls').onChildAdded;
+  }
+
+  DatabaseReference getCallRoom(String targetUid, String roomId) {
+    return _db.child('signaling/$targetUid/incoming_calls/$roomId');
+  }
+
+  Future<void> sendOffer(String targetUid, String roomId, Map<String, dynamic> offer, Map<String, dynamic> transferRequestJson) async {
+    await getCallRoom(targetUid, roomId).set({
+      'caller_uid': uid,
+      'caller_username': _username,
+      'offer': offer,
+      'transfer_request': transferRequestJson,
+      'status': 'ringing',
+      'timestamp': ServerValue.timestamp,
+    });
+  }
+
+  Future<void> sendAnswer(String callerUid, String roomId, Map<String, dynamic> answer) async {
+    // Write answer to my own room so caller can read it
+    await _db.child('signaling/$uid/incoming_calls/$roomId').update({
+      'answer': answer,
+      'status': 'accepted',
+    });
+  }
+
+  Future<void> addIceCandidate(String targetUid, String roomId, Map<String, dynamic> candidate, bool isCaller) async {
+    final node = isCaller ? 'candidates_from_caller' : 'candidates_from_receiver';
+    await _db.child('signaling/$targetUid/incoming_calls/$roomId/$node').push().set(candidate);
+  }
+
+  Stream<DatabaseEvent> listenToAnswer(String targetUid, String roomId) {
+    return _db.child('signaling/$targetUid/incoming_calls/$roomId/answer').onValue;
+  }
+
+  Stream<DatabaseEvent> listenToIceCandidates(String targetUid, String roomId, bool isCaller) {
+    final node = isCaller ? 'candidates_from_receiver' : 'candidates_from_caller';
+    return _db.child('signaling/$targetUid/incoming_calls/$roomId/$node').onChildAdded;
+  }
+
+  Future<void> endCall(String targetUid, String roomId) async {
+    await _db.child('signaling/$targetUid/incoming_calls/$roomId').remove();
   }
 }
