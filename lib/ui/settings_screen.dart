@@ -49,15 +49,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
           // ── Device ───────────────────────
-          _sectionHeader(context, 'Device', Icons.smartphone),
+          _sectionHeader(context, 'Device & Profile', Icons.smartphone),
           Card(
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: ListTile(
-              leading: const Icon(Icons.badge_outlined),
-              title: const Text('Device Name'),
-              subtitle: Text(_settings.deviceName),
-              trailing: const Icon(Icons.edit, size: 20),
-              onTap: _editDeviceName,
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.badge_outlined),
+                  title: const Text('Device Name'),
+                  subtitle: Text(_settings.deviceName),
+                  trailing: const Icon(Icons.edit, size: 20),
+                  onTap: _editDeviceName,
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.person_outline),
+                  title: const Text('Username'),
+                  subtitle: Text(_settings.username.isEmpty 
+                      ? 'Not set (defaults to Device Name)' 
+                      : _settings.username),
+                  trailing: const Icon(Icons.edit, size: 20),
+                  onTap: _editUsername,
+                ),
+              ],
             ),
           ),
 
@@ -279,6 +293,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     if (result != null && result.trim().isNotEmpty) {
       setState(() => _settings.deviceName = result.trim());
+    }
+  }
+
+  Future<void> _editUsername() async {
+    final controller = TextEditingController(text: _settings.username);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Username'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(
+            labelText: 'Enter custom username (optional)',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, controller.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      setState(() => _settings.username = result.trim());
     }
   }
 

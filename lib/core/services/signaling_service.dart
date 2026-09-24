@@ -51,7 +51,7 @@ class SignalingService {
 
     _uid = const Uuid().v4();
     final settings = SettingsService();
-    _username = settings.deviceName.isNotEmpty ? settings.deviceName : 'FastShare Device';
+    _username = settings.effectiveUsername;
 
     // Join the global channel for presence and signaling
     _channel = _supabase!.channel('global_p2p');

@@ -25,7 +25,7 @@ class SettingsService {
 
   void _notify() => _changeController.add(null);
 
-  // ── Device Name ──────────────────────────
+  // ── Device Name & Username ───────────────
 
   String get deviceName {
     return _prefs?.getString('device_name') ?? Platform.localHostname;
@@ -34,6 +34,20 @@ class SettingsService {
   set deviceName(String value) {
     _prefs?.setString('device_name', value);
     _notify();
+  }
+
+  String get username {
+    return _prefs?.getString('username') ?? '';
+  }
+
+  set username(String value) {
+    _prefs?.setString('username', value);
+    _notify();
+  }
+
+  String get effectiveUsername {
+    final u = username;
+    return u.isNotEmpty ? u : deviceName;
   }
 
   // ── Save Path ────────────────────────────

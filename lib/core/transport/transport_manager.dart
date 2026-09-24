@@ -17,6 +17,10 @@ import 'package:fast_share/core/transport/fastshare_tcp_transport.dart';
 /// - Target is FastShare: Use FastShareTcpTransport (Raw TCP Frame Protocol)
 /// - Android <-> Android offline fallback: Use NearbyTransport
 class TransportManager {
+  static final TransportManager _instance = TransportManager._internal();
+  factory TransportManager() => _instance;
+  TransportManager._internal();
+
   final HttpTransport _httpTransport = HttpTransport();
   final NearbyTransport _nearbyTransport = NearbyTransport();
   final LocalSendTransport _localSendTransport = LocalSendTransport();
@@ -40,12 +44,12 @@ class TransportManager {
 
     final localIp = await HttpTransport.getLocalIp();
     final settings = SettingsService();
-    final deviceName = settings.deviceName;
+    final username = settings.effectiveUsername;
     final os = _getCurrentOS();
 
     _selfInfo = DeviceInfo(
       id: const Uuid().v4(),
-      name: deviceName.isNotEmpty ? deviceName : 'FastShare Device',
+      name: username,
       os: os,
       ip: localIp,
       port: _httpTransport.httpPort,
@@ -66,7 +70,7 @@ class TransportManager {
 
     settings.onSettingsChanged.listen((_) {
       if (_selfInfo != null) {
-        final newName = settings.deviceName;
+        final newName = settings.effectiveUsername;
         if (_selfInfo!.name != newName) {
           _selfInfo = _selfInfo!.copyWith(name: newName);
           _httpTransport.startAdvertising(_selfInfo!);
