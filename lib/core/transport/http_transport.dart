@@ -751,7 +751,7 @@ class HttpTransport implements TransportInterface {
 
   @override
   Future<void> acceptTransfer(
-    TransferRequest request, {String? pin,}
+    TransferRequest request,
     String savePath, {
     void Function(String fileName, double progress)? onProgress,
   }) async {
