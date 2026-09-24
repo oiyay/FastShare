@@ -11,6 +11,7 @@ import 'package:fast_share/core/services/settings_service.dart';
 import 'package:fast_share/core/transport/transport_manager.dart';
 import 'package:fast_share/ui/settings_screen.dart';
 import 'package:fast_share/ui/files_screen.dart';
+import 'package:fast_share/ui/global_share_screen.dart';
 import 'package:fast_share/ui/widgets/device_tile.dart';
 import 'package:fast_share/ui/widgets/transfer_tile.dart';
 
@@ -346,6 +347,17 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
+          // Global P2P button
+          IconButton(
+            icon: const Icon(Icons.public),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const GlobalShareScreen()),
+              );
+            },
+            tooltip: 'Global P2P Share',
+          ),
           // Files button
           IconButton(
             icon: const Icon(Icons.folder),

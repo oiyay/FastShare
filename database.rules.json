@@ -1,0 +1,16 @@
+{
+  "rules": {
+    "users": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid == $uid"
+      }
+    },
+    "signaling": {
+      "$receiver_uid": {
+        ".read": "auth != null && auth.uid == $receiver_uid",
+        ".write": "auth != null" 
+      }
+    }
+  }
+}

@@ -7,8 +7,14 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:fast_share/core/services/settings_service.dart';
 import 'package:fast_share/ui/home_screen.dart';
 
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   await SettingsService().init();
 
   // Request storage permissions on Android before app starts
