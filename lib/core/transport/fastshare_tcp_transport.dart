@@ -31,6 +31,8 @@ class FastShareTcpTransport implements TransportInterface {
   final Map<String, Map<String, String>> _fileNames = {};
   // Track active file paths: senderId -> { fileId -> path }
   final Map<String, Map<String, String>> _filePaths = {};
+  // Track last UI update time for throttling: senderId -> timestamp
+  final Map<String, int> _lastUpdateTimes = {};
 
   // Connections where we are the SENDER
   final Map<String, Socket> _outgoingSockets = {};
@@ -160,7 +162,12 @@ class FastShareTcpTransport implements TransportInterface {
           final size = _expectedSizes[currentSenderId]![fileId] ?? 1;
           final name = _fileNames[currentSenderId]![fileId] ?? fileId;
           
-          _progressCallbacks[currentSenderId]?.call(name, received / size);
+          final now = DateTime.now().millisecondsSinceEpoch;
+          final lastUpdate = _lastUpdateTimes[currentSenderId] ?? 0;
+          if (now - lastUpdate > 32 || received == size) {
+            _progressCallbacks[currentSenderId]?.call(name, received / size);
+            _lastUpdateTimes[currentSenderId] = now;
+          }
         }
       } else if (type == 'file_complete') {
         if (currentSenderId == null) return;
@@ -205,6 +212,7 @@ class FastShareTcpTransport implements TransportInterface {
         _fileNames.remove(currentSenderId);
         _filePaths.remove(currentSenderId);
         _progressCallbacks.remove(currentSenderId);
+        _lastUpdateTimes.remove(currentSenderId);
       }
     });
   }
@@ -270,10 +278,20 @@ class FastShareTcpTransport implements TransportInterface {
     final size = await file.length();
     int bytesSent = 0;
     
-    // Lazy import of crypto since we added it to pubspec
-    final digest = await file.openRead().transform(crypto.sha256).single;
+    // Optimize: Read in 1MB chunks and Hash on-the-fly to prevent double reading
+    final raf = await file.open(mode: FileMode.read);
+    const chunkSize = 1024 * 1024; // 1MB chunks
+    int lastUpdate = DateTime.now().millisecondsSinceEpoch;
     
-    await for (final chunk in file.openRead()) {
+    final digestSink = _DigestSink();
+    final byteSink = crypto.sha256.startChunkedConversion(digestSink);
+    
+    while (bytesSent < size) {
+      final chunk = await raf.read(chunkSize);
+      if (chunk.isEmpty) break;
+      
+      byteSink.add(chunk);
+      
       _sendFrame(socket, {
         'type': 'file_chunk',
         'fileId': fileId,
@@ -282,13 +300,22 @@ class FastShareTcpTransport implements TransportInterface {
       }, chunk);
       
       bytesSent += chunk.length;
-      onProgress?.call(bytesSent / size);
+      
+      final now = DateTime.now().millisecondsSinceEpoch;
+      if (now - lastUpdate > 32 || bytesSent == size) { // Throttle UI updates to 30fps
+        onProgress?.call(bytesSent / size);
+        lastUpdate = now;
+      }
     }
+    
+    await raf.close();
+    byteSink.close();
+    final digest = digestSink.digest;
     
     _sendFrame(socket, {
       'type': 'file_complete',
       'fileId': fileId,
-      'checksum': digest.toString(),
+      'checksum': digest?.toString() ?? '',
     });
   }
 
@@ -334,4 +361,14 @@ class FastShareTcpTransport implements TransportInterface {
       _incomingSockets.remove(request.senderId);
     }
   }
+}
+
+class _DigestSink implements EventSink<crypto.Digest> {
+  crypto.Digest? digest;
+  @override
+  void add(crypto.Digest event) => digest = event;
+  @override
+  void addError(Object error, [StackTrace? stackTrace]) {}
+  @override
+  void close() {}
 }

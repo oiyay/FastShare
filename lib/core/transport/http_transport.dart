@@ -69,7 +69,11 @@ class HttpTransport implements TransportInterface {
 
   void refreshDiscovery() {
     _startHttpSweep();
+    
+    // Rapid burst of 3 UDP broadcasts
     _sendBroadcast();
+    Future.delayed(const Duration(milliseconds: 200), _sendBroadcast);
+    Future.delayed(const Duration(milliseconds: 500), _sendBroadcast);
   }
 
   @override
@@ -148,6 +152,10 @@ class HttpTransport implements TransportInterface {
         'download': true,
       }));
 
+      // Multicast broadcast (LocalSend official standard)
+      _udpSocket!.send(fsData, InternetAddress('224.0.0.167'), _udpPort);
+      _udpSocket!.send(lsData, InternetAddress('224.0.0.167'), _udpPort);
+
       // Global broadcast (works on some networks)
       _udpSocket!.send(fsData, InternetAddress('255.255.255.255'), _udpPort);
       _udpSocket!.send(lsData, InternetAddress('255.255.255.255'), _udpPort);
@@ -199,7 +207,7 @@ class HttpTransport implements TransportInterface {
           ip: datagram.address.address,
           port: json['port'] ?? 53317,
           tcpPort: json['tcp_port'],
-          protocol: 'localsend',
+          protocol: json['tcp_port'] != null ? 'fastshare' : 'localsend',
         );
       } else {
         // Unknown protocol
@@ -263,7 +271,7 @@ class HttpTransport implements TransportInterface {
   Future<void> _pingLocalSendDevice(String ip) async {
     // LocalSend uses self-signed HTTPS by default. We must allow bad certificates.
     final client = HttpClient()
-      ..connectionTimeout = const Duration(milliseconds: 1500)
+      ..connectionTimeout = const Duration(milliseconds: 500)
       ..badCertificateCallback = (X509Certificate cert, String host, int port) => true;
 
     // Try HTTPS first, then HTTP fallback
@@ -283,7 +291,7 @@ class HttpTransport implements TransportInterface {
             ip: ip,
             port: json['port'] ?? 53317,
             tcpPort: json['tcp_port'],
-            protocol: 'localsend',
+            protocol: json['tcp_port'] != null ? 'fastshare' : 'localsend',
           );
 
           final updated = device.copyWith(lastSeen: DateTime.now());
@@ -423,7 +431,7 @@ class HttpTransport implements TransportInterface {
              : '',
         port: json['port'] ?? 53317,
         tcpPort: json['tcp_port'],
-        protocol: 'localsend',
+        protocol: json['tcp_port'] != null ? 'fastshare' : 'localsend',
       );
 
       // Only add if we got a valid IP
