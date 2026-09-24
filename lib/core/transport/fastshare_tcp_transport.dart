@@ -299,6 +299,10 @@ class FastShareTcpTransport implements TransportInterface {
         'payloadLength': chunk.length,
       }, chunk);
       
+      // CRITICAL FIX: Wait for the chunk to actually be transmitted over the network!
+      // This prevents Dart from flooding the OS buffer, exploding memory, and faking 100% progress.
+      await socket.flush();
+      
       bytesSent += chunk.length;
       
       final now = DateTime.now().millisecondsSinceEpoch;
@@ -317,6 +321,7 @@ class FastShareTcpTransport implements TransportInterface {
       'fileId': fileId,
       'checksum': digest?.toString() ?? '',
     });
+    await socket.flush();
   }
 
   @override
