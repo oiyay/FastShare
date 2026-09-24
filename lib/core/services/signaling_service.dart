@@ -26,7 +26,12 @@ class SignalingService {
   String? get username => _username;
 
   final _usersController = StreamController<List<GlobalUser>>.broadcast();
-  Stream<List<GlobalUser>> get onlineUsers => _usersController.stream;
+  List<GlobalUser> _currentUsers = [];
+  
+  Stream<List<GlobalUser>> get onlineUsers async* {
+    yield _currentUsers;
+    yield* _usersController.stream;
+  }
 
   final _incomingMessagesController = StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get incomingMessages => _incomingMessagesController.stream;
@@ -40,6 +45,7 @@ class SignalingService {
       _supabase = Supabase.instance.client;
     } catch (e) {
       print('[SignalingService] Supabase not initialized. Global P2P disabled.');
+      _usersController.addError('Supabase credentials not found. Please set SUPABASE_URL and SUPABASE_ANON_KEY secrets in GitHub and rebuild.');
       return;
     }
 
@@ -71,6 +77,7 @@ class SignalingService {
           }
         }
       }
+      _currentUsers = users;
       _usersController.add(users);
     });
 
