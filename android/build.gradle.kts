@@ -14,6 +14,10 @@ subprojects {
     
     plugins.withId("com.android.library") {
         configure<com.android.build.gradle.LibraryExtension> {
+            compileSdk = 35
+            defaultConfig {
+                minSdk = 23
+            }
             if (namespace == null) {
                 if (project.name == "nearby_connections") {
                     namespace = "com.pkmnapps.nearby_connections"
