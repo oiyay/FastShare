@@ -152,21 +152,21 @@ class FastShareTcpTransport implements TransportInterface {
         final fileId = frame['fileId'] as String;
         final payload = frame['_payload'] as List<int>;
         
-        final sink = _activeSinks[currentSenderId]?[fileId];
+        final sink = _activeSinks[currentSenderId!]?[fileId];
         if (sink != null) {
           sink.add(payload);
           
-          final received = (_bytesReceived[currentSenderId]![fileId] ?? 0) + payload.length;
-          _bytesReceived[currentSenderId]![fileId] = received;
+          final received = (_bytesReceived[currentSenderId!]![fileId] ?? 0) + payload.length;
+          _bytesReceived[currentSenderId!]![fileId] = received;
           
-          final size = _expectedSizes[currentSenderId]![fileId] ?? 1;
-          final name = _fileNames[currentSenderId]![fileId] ?? fileId;
+          final size = _expectedSizes[currentSenderId!]![fileId] ?? 1;
+          final name = _fileNames[currentSenderId!]![fileId] ?? fileId;
           
           final now = DateTime.now().millisecondsSinceEpoch;
-          final lastUpdate = _lastUpdateTimes[currentSenderId] ?? 0;
+          final lastUpdate = _lastUpdateTimes[currentSenderId!] ?? 0;
           if (now - lastUpdate > 32 || received == size) {
-            _progressCallbacks[currentSenderId]?.call(name, received / size);
-            _lastUpdateTimes[currentSenderId] = now;
+            _progressCallbacks[currentSenderId!]?.call(name, received / size);
+            _lastUpdateTimes[currentSenderId!] = now;
           }
         }
       } else if (type == 'file_complete') {
@@ -174,11 +174,11 @@ class FastShareTcpTransport implements TransportInterface {
         final fileId = frame['fileId'] as String;
         final expectedChecksum = frame['checksum'] as String?;
         
-        _activeSinks[currentSenderId]?[fileId]?.close();
-        _activeSinks[currentSenderId]?.remove(fileId);
+        _activeSinks[currentSenderId!]?[fileId]?.close();
+        _activeSinks[currentSenderId!]?.remove(fileId);
         
-        final name = _fileNames[currentSenderId]![fileId] ?? fileId;
-        final path = _filePaths[currentSenderId]?[fileId];
+        final name = _fileNames[currentSenderId!]![fileId] ?? fileId;
+        final path = _filePaths[currentSenderId!]?[fileId];
         
         if (path != null && expectedChecksum != null) {
           // Verify checksum
@@ -197,22 +197,22 @@ class FastShareTcpTransport implements TransportInterface {
         }
       } else if (type == 'cancel') {
         if (currentSenderId != null) {
-          _activeSinks[currentSenderId]?.values.forEach((sink) => sink.close());
-          _activeSinks.remove(currentSenderId);
+          _activeSinks[currentSenderId!]?.values.forEach((sink) => sink.close());
+          _activeSinks.remove(currentSenderId!);
         }
       }
 
     }, onDone: () {
       if (currentSenderId != null) {
-        _incomingSockets.remove(currentSenderId);
-        _activeSinks[currentSenderId]?.values.forEach((sink) => sink.close());
-        _activeSinks.remove(currentSenderId);
-        _expectedSizes.remove(currentSenderId);
-        _bytesReceived.remove(currentSenderId);
-        _fileNames.remove(currentSenderId);
-        _filePaths.remove(currentSenderId);
-        _progressCallbacks.remove(currentSenderId);
-        _lastUpdateTimes.remove(currentSenderId);
+        _incomingSockets.remove(currentSenderId!);
+        _activeSinks[currentSenderId!]?.values.forEach((sink) => sink.close());
+        _activeSinks.remove(currentSenderId!);
+        _expectedSizes.remove(currentSenderId!);
+        _bytesReceived.remove(currentSenderId!);
+        _fileNames.remove(currentSenderId!);
+        _filePaths.remove(currentSenderId!);
+        _progressCallbacks.remove(currentSenderId!);
+        _lastUpdateTimes.remove(currentSenderId!);
       }
     });
   }
