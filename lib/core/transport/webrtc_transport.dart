@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:fast_share/core/models/device_info.dart';
@@ -126,7 +127,6 @@ class WebRtcTransport implements TransportInterface {
     final requestJson = {
       'senderId': request.senderId,
       'senderName': request.senderName,
-      'os': request.os,
       'files': request.files.map((f) => {
         'id': f.id,
         'name': f.name,
@@ -209,7 +209,6 @@ class WebRtcTransport implements TransportInterface {
     final request = TransferRequest(
       senderName: reqData['senderName'].toString(),
       senderId: callerUid,
-      os: reqData['os'].toString(),
       files: files,
     );
 
@@ -221,7 +220,6 @@ class WebRtcTransport implements TransportInterface {
     final reqWithToken = TransferRequest(
       senderName: request.senderName,
       senderId: request.senderId,
-      os: request.os,
       files: request.files,
     );
     
