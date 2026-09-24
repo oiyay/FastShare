@@ -45,7 +45,10 @@ jobs:
         run: flutter pub get
 
       - name: Build signed APK
-        run: flutter build apk --release --android-skip-build-dependency-validation
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: flutter build apk --release --android-skip-build-dependency-validation --dart-define=SUPABASE_URL="$SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
 
       - name: Upload to GitHub Release
         if: github.event_name == 'release'
@@ -78,16 +81,16 @@ jobs:
         env:
           CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
           _CL_: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
-        run: flutter build windows --release
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: flutter build windows --release --dart-define=SUPABASE_URL="$env:SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$env:SUPABASE_ANON_KEY"
 
-      - name: Zip output
-        shell: pwsh
-        run: |
-          Rename-Item -Path "build\windows\x64\runner\Release" -NewName "FastShare"
-          Compress-Archive -Path build\windows\x64\runner\FastShare -DestinationPath FastShare-Windows.zip
+      - name: Build Windows Installer (InnoSetup)
+        shell: cmd
+        run: iscc windows\installer.iss
 
       - name: Upload to GitHub Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: FastShare-Windows.zip
+          files: build\windows\x64\installer\FastShare-Setup.exe

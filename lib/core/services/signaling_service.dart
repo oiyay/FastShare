@@ -1,13 +1,14 @@
 import 'dart:async';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:uuid/uuid.dart';
 import 'package:fast_share/core/services/settings_service.dart';
 
 class GlobalUser {
   final String uid;
   final String username;
-  final String status;
-  GlobalUser(this.uid, this.username, this.status);
+  final DateTime lastActive;
+
+  GlobalUser({required this.uid, required this.username, required this.lastActive});
 }
 
 class SignalingService {
@@ -15,94 +16,137 @@ class SignalingService {
   factory SignalingService() => _instance;
   SignalingService._internal();
 
-  final _auth = FirebaseAuth.instance;
-  final _db = FirebaseDatabase.instance.ref();
-  
-  User? _currentUser;
-  String? get uid => _currentUser?.uid;
+  SupabaseClient? _supabase;
+  RealtimeChannel? _channel;
+
+  String? _uid;
+  String? get uid => _uid;
+
   String? _username;
+  String? get username => _username;
+
+  final _usersController = StreamController<List<GlobalUser>>.broadcast();
+  Stream<List<GlobalUser>> get onlineUsers => _usersController.stream;
+
+  final _incomingMessagesController = StreamController<Map<String, dynamic>>.broadcast();
+  Stream<Map<String, dynamic>> get incomingMessages => _incomingMessagesController.stream;
+
+  bool _isInitialized = false;
 
   Future<void> initialize() async {
-    final userCred = await _auth.signInAnonymously();
-    _currentUser = userCred.user;
-    if (_currentUser == null) throw Exception("Failed to login anonymously");
-
-    _username = '@${SettingsService().deviceName.replaceAll(' ', '_').toLowerCase()}';
-    final userRef = _db.child('users/${_currentUser!.uid}');
+    if (_isInitialized) return;
     
-    await userRef.set({
-      'username': _username,
-      'status': 'online',
-      'timestamp': ServerValue.timestamp,
-    });
+    try {
+      _supabase = Supabase.instance.client;
+    } catch (e) {
+      print('[SignalingService] Supabase not initialized. Global P2P disabled.');
+      return;
+    }
 
-    userRef.onDisconnect().remove();
-  }
+    _uid = const Uuid().v4();
+    final settings = SettingsService();
+    _username = settings.deviceName.isNotEmpty ? settings.deviceName : 'FastShare Device';
 
-  Stream<List<GlobalUser>> getOnlineUsers() {
-    return _db.child('users').onValue.map((event) {
-      final List<GlobalUser> users = [];
-      final data = event.snapshot.value as Map<dynamic, dynamic>?;
-      if (data != null) {
-        data.forEach((key, value) {
-          if (key != uid) {
+    // Join the global channel for presence and signaling
+    _channel = _supabase!.channel('global_p2p');
+
+    // Handle Presence updates
+    _channel!.onPresenceSync((_) {
+      final state = _channel!.presenceState();
+      final users = <GlobalUser>[];
+      
+      for (final entry in state.entries) {
+        for (final presence in entry.value) {
+          final pUid = presence.payload['uid'] as String?;
+          final pUsername = presence.payload['username'] as String?;
+          
+          if (pUid != null && pUsername != null && pUid != _uid) {
             users.add(GlobalUser(
-              key.toString(),
-              value['username'].toString(),
-              value['status'].toString(),
+              uid: pUid,
+              username: pUsername,
+              lastActive: DateTime.now(),
             ));
           }
+        }
+      }
+      _usersController.add(users);
+    });
+
+    // Handle direct signaling messages
+    _channel!.onBroadcast(
+      event: 'signaling',
+      callback: (payload) {
+        if (payload['target_uid'] == _uid) {
+          _incomingMessagesController.add(payload);
+        }
+      },
+    );
+
+    // Subscribe to channel
+    _channel!.subscribe((status, [error]) async {
+      if (status == RealtimeSubscribeStatus.subscribed) {
+        // Announce our presence
+        await _channel!.track({
+          'uid': _uid,
+          'username': _username,
+          'online_at': DateTime.now().toIso8601String(),
         });
       }
-      return users;
+    });
+
+    _isInitialized = true;
+  }
+
+  /// Send a WebRTC signaling message to a target user
+  Future<void> sendSignal({
+    required String targetUid,
+    required String type, // 'offer', 'answer', 'ice_candidate', 'end'
+    required Map<String, dynamic> data,
+  }) async {
+    if (_channel == null) return;
+    
+    await _channel!.sendBroadcastMessage(
+      event: 'signaling',
+      payload: {
+        'target_uid': targetUid,
+        'sender_uid': _uid,
+        'type': type,
+        'data': data,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      },
+    );
+  }
+
+  /// We no longer need these explicit methods since it's all handled by sendSignal
+  Future<void> sendOffer(String callerUid, String targetUid, String roomId, Map<String, dynamic> offerData) async {
+    await sendSignal(targetUid: targetUid, type: 'offer', data: {
+      'roomId': roomId,
+      'offer': offerData,
     });
   }
 
-  // WEBRTC SIGNALING METHODS
-  
-  Stream<DatabaseEvent> get incomingCalls {
-    if (uid == null) return const Stream.empty();
-    return _db.child('signaling/$uid/incoming_calls').onChildAdded;
-  }
-
-  DatabaseReference getCallRoom(String targetUid, String roomId) {
-    return _db.child('signaling/$targetUid/incoming_calls/$roomId');
-  }
-
-  Future<void> sendOffer(String targetUid, String roomId, Map<String, dynamic> offer, Map<String, dynamic> transferRequestJson) async {
-    await getCallRoom(targetUid, roomId).set({
-      'caller_uid': uid,
-      'caller_username': _username,
-      'offer': offer,
-      'transfer_request': transferRequestJson,
-      'status': 'ringing',
-      'timestamp': ServerValue.timestamp,
+  Future<void> sendAnswer(String callerUid, String targetUid, String roomId, Map<String, dynamic> answerData) async {
+    await sendSignal(targetUid: callerUid, type: 'answer', data: {
+      'roomId': roomId,
+      'answer': answerData,
     });
   }
 
-  Future<void> sendAnswer(String callerUid, String roomId, Map<String, dynamic> answer) async {
-    // Write answer to my own room so caller can read it
-    await _db.child('signaling/$uid/incoming_calls/$roomId').update({
-      'answer': answer,
-      'status': 'accepted',
+  Future<void> sendIceCandidate(String callerUid, String targetUid, String roomId, Map<String, dynamic> candidateData) async {
+    await sendSignal(targetUid: targetUid, type: 'ice_candidate', data: {
+      'roomId': roomId,
+      'candidate': candidateData,
     });
   }
 
-  Future<void> addIceCandidate(String targetUid, String roomId, Map<String, dynamic> candidate, bool isCaller) async {
-    final node = isCaller ? 'candidates_from_caller' : 'candidates_from_receiver';
-    await _db.child('signaling/$targetUid/incoming_calls/$roomId/$node').push().set(candidate);
+  Future<void> endCall(String callerUid, String roomId) async {
+    // Send end signal
+    await sendSignal(targetUid: 'ALL', type: 'end', data: {
+      'roomId': roomId,
+    });
   }
 
-  Stream<DatabaseEvent> listenToAnswer(String targetUid, String roomId) {
-    return _db.child('signaling/$targetUid/incoming_calls/$roomId/answer').onValue;
-  }
-
-  Stream<DatabaseEvent> listenToIceCandidates(String targetUid, String roomId, bool isCaller) {
-    final node = isCaller ? 'candidates_from_receiver' : 'candidates_from_caller';
-    return _db.child('signaling/$targetUid/incoming_calls/$roomId/$node').onChildAdded;
-  }
-
-  Future<void> endCall(String targetUid, String roomId) async {
-    await _db.child('signaling/$targetUid/incoming_calls/$roomId').remove();
+  void dispose() {
+    _channel?.unsubscribe();
   }
 }

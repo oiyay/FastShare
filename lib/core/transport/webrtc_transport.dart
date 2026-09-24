@@ -4,38 +4,39 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:uuid/uuid.dart';
 
 import 'package:fast_share/core/models/device_info.dart';
 import 'package:fast_share/core/models/transfer_request.dart';
-import 'package:fast_share/core/models/exceptions.dart';
 import 'package:fast_share/core/transport/transport_interface.dart';
 import 'package:fast_share/core/services/signaling_service.dart';
 
-class _DigestSink implements EventSink<crypto.Digest> {
+class _DigestSink extends Sink<crypto.Digest> {
   crypto.Digest? digest;
-  @override void add(crypto.Digest event) => digest = event;
-  @override void addError(Object error, [StackTrace? stackTrace]) {}
-  @override void close() {}
+  @override
+  void add(crypto.Digest data) => digest = data;
+  @override
+  void close() {}
 }
 
 class WebRtcTransport implements TransportInterface {
-  final _requestController = StreamController<TransferRequest>.broadcast();
   final SignalingService _signaling = SignalingService();
-
-  // Active PeerConnections and DataChannels mapped by target UID
+  final _requestController = StreamController<TransferRequest>.broadcast();
+  StreamSubscription? _signalingSub;
+  
   final Map<String, RTCPeerConnection> _peerConnections = {};
   final Map<String, RTCDataChannel> _dataChannels = {};
-
-  // Receive tracking maps (same as TCP transport)
+  
   final Map<String, Map<String, IOSink>> _activeSinks = {};
   final Map<String, Map<String, int>> _expectedSizes = {};
   final Map<String, Map<String, int>> _bytesReceived = {};
   final Map<String, Map<String, String>> _fileNames = {};
   final Map<String, Map<String, String>> _filePaths = {};
-  final Map<String, int> _lastUpdateTimes = {};
   final Map<String, void Function(String, double)> _progressCallbacks = {};
+  final Map<String, int> _lastUpdateTimes = {};
+
+  final Map<String, Map<String, dynamic>> _pendingIncomingCalls = {};
+  final Map<String, List<Map<String, dynamic>>> _iceCandidateQueue = {};
 
   final Map<String, dynamic> _iceServers = {
     'iceServers': [
@@ -46,193 +47,134 @@ class WebRtcTransport implements TransportInterface {
 
   @override
   Future<void> initialize() async {
-    _signaling.incomingCalls.listen(_handleIncomingCall);
+    await _signaling.initialize();
+    _signalingSub = _signaling.incomingMessages.listen(_handleIncomingMessage);
   }
 
-  @override
-  Future<void> dispose() async {
-    _requestController.close();
-    for (final pc in _peerConnections.values) {
-      await pc.close();
+  void _handleIncomingMessage(Map<String, dynamic> payload) async {
+    final senderUid = payload['sender_uid'] as String;
+    final type = payload['type'] as String;
+    final data = payload['data'] as Map<String, dynamic>;
+
+    if (type == 'offer') {
+      _handleOffer(senderUid, data);
+    } else if (type == 'answer') {
+      _handleAnswer(senderUid, data);
+    } else if (type == 'ice_candidate') {
+      _handleIceCandidate(senderUid, data);
+    } else if (type == 'end') {
+      _cleanupConnection(senderUid);
     }
-    _peerConnections.clear();
-    _dataChannels.clear();
   }
 
-  @override
-  Stream<DeviceInfo> discoverDevices() => const Stream.empty(); // Handled by GlobalShareScreen
-
-  @override
-  Future<void> startAdvertising(DeviceInfo selfInfo) async {}
-
-  @override
-  Future<void> stopAdvertising() async {}
-
-  void _setupPeerConnectionListeners(RTCPeerConnection pc, String targetUid, bool isCaller, String roomId, String dbTargetUid) {
-    pc.onIceCandidate = (candidate) {
-      _signaling.addIceCandidate(dbTargetUid, roomId, {
-        'candidate': candidate.candidate,
-        'sdpMid': candidate.sdpMid,
-        'sdpMLineIndex': candidate.sdpMLineIndex,
-      }, isCaller);
-    };
-
-    pc.onIceConnectionState = (state) {
-      print('[WebRTC] ICE State: $state');
-      if (state == RTCIceConnectionState.RTCIceConnectionStateDisconnected ||
-          state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
-        _cleanupConnection(targetUid);
-      }
-    };
-  }
-
-  void _cleanupConnection(String targetUid) {
-    _peerConnections[targetUid]?.close();
-    _peerConnections.remove(targetUid);
-    _dataChannels.remove(targetUid);
-    _activeSinks[targetUid]?.values.forEach((sink) => sink.close());
-    _activeSinks.remove(targetUid);
-    _expectedSizes.remove(targetUid);
-    _bytesReceived.remove(targetUid);
-    _fileNames.remove(targetUid);
-    _filePaths.remove(targetUid);
-    _progressCallbacks.remove(targetUid);
-    _lastUpdateTimes.remove(targetUid);
-  }
-
-  @override
-  Future<TransferResponse> sendTransferRequest(
-    DeviceInfo target,
-    TransferRequest request, {
-    String? pin,
-  }) async {
-    final targetUid = target.id;
-    final roomId = const Uuid().v4();
-
-    final pc = await createPeerConnection(_iceServers);
-    _peerConnections[targetUid] = pc;
-
-    // Create Data Channel FIRST before creating Offer
-    final dcInit = RTCDataChannelInit()..maxRetransmits = 30; // SCTP reliability
-    final dc = await pc.createDataChannel('fastshare_data', dcInit);
-    _dataChannels[targetUid] = dc;
-    _setupDataChannel(dc, targetUid);
-
-    _setupPeerConnectionListeners(pc, targetUid, true, roomId, targetUid);
-
-    final offer = await pc.createOffer();
-    await pc.setLocalDescription(offer);
-
-    // Convert request to JSON
-    final requestJson = {
-      'senderId': request.senderId,
-      'senderName': request.senderName,
-      'files': request.files.map((f) => {
-        'id': f.id,
-        'name': f.name,
-        'size': f.size,
-      }).toList(),
-    };
-
-    // Send Offer via Firebase
-    await _signaling.sendOffer(
-      targetUid,
-      roomId,
-      {'type': offer.type, 'sdp': offer.sdp},
-      requestJson,
-    );
-
-    // Listen for Answer
-    final answerCompleter = Completer<bool>();
-    StreamSubscription? answerSub;
-    answerSub = _signaling.listenToAnswer(targetUid, roomId).listen((event) async {
-      final data = event.snapshot.value as Map<dynamic, dynamic>?;
-      if (data != null && data['type'] != null) {
-        if (!answerCompleter.isCompleted) {
-          await pc.setRemoteDescription(RTCSessionDescription(data['sdp'], data['type']));
-          answerCompleter.complete(true);
-        }
-      }
-    });
-
-    // Listen for receiver's ICE candidates
-    StreamSubscription? iceSub;
-    iceSub = _signaling.listenToIceCandidates(targetUid, roomId, true).listen((event) async {
-      final data = event.snapshot.value as Map<dynamic, dynamic>?;
-      if (data != null) {
-        await pc.addCandidate(RTCIceCandidate(
-          data['candidate'],
-          data['sdpMid'],
-          data['sdpMLineIndex'],
-        ));
-      }
-    });
-
-    try {
-      await answerCompleter.future.timeout(const Duration(seconds: 60));
-    } catch (e) {
-      _cleanupConnection(targetUid);
-      answerSub.cancel();
-      iceSub.cancel();
-      await _signaling.endCall(targetUid, roomId);
-      throw Exception('Target did not answer in time (Timeout).');
-    }
-
-    // Clean up signaling after a delay so ICE candidates finish trickling
-    Future.delayed(const Duration(seconds: 10), () {
-      answerSub?.cancel();
-      iceSub?.cancel();
-      _signaling.endCall(targetUid, roomId);
-    });
-
-    return TransferResponse(accepted: true, token: roomId);
-  }
-
-  void _handleIncomingCall(DatabaseEvent event) async {
-    final data = event.snapshot.value as Map<dynamic, dynamic>?;
-    final roomId = event.snapshot.key;
-    if (data == null || roomId == null) return;
-
-    final callerUid = data['caller_uid'].toString();
-    final callerUsername = data['caller_username'].toString();
-    final offerData = data['offer'];
-    final reqData = data['transfer_request'];
-
-    if (offerData == null || reqData == null) return;
-
-    final files = (reqData['files'] as List).map((f) => FileMetadata(
-      id: f['id'].toString(),
-      name: f['name'].toString(),
-      size: int.parse(f['size'].toString()),
-    )).toList();
-
+  void _handleOffer(String senderUid, Map<String, dynamic> data) async {
+    final roomId = data['roomId'] as String;
+    final offerData = data['offer'] as Map<String, dynamic>;
+    
+    // Convert to TransferRequest
+    final reqDataStr = offerData['requestJson'];
+    if (reqDataStr == null) return;
+    
+    final reqData = jsonDecode(reqDataStr) as Map<String, dynamic>;
+    final files = (reqData['files'] as List).map((f) => FileMetadata.fromJson(f)).toList();
+    
     final request = TransferRequest(
       senderName: reqData['senderName'].toString(),
-      senderId: callerUid,
+      senderId: senderUid,
       files: files,
     );
 
-    // Auto-accepting for simplicity in WebRTC for now, or we route it to UI
-    // To match TCP flow, we must emit it to _requestController
-    
-    // BUT we need to store the SDP offer and roomId so acceptTransfer can use them!
-    // We can inject roomId into token temporarily!
-    final reqWithToken = TransferRequest(
-      senderName: request.senderName,
-      senderId: request.senderId,
-      files: request.files,
-    );
-    
-    // Store signaling context temporarily in a private map
-    _pendingIncomingCalls[callerUid] = {
+    _pendingIncomingCalls[senderUid] = {
       'roomId': roomId,
       'offer': offerData,
     };
 
-    _requestController.add(reqWithToken);
+    _requestController.add(request);
   }
 
-  final Map<String, Map<String, dynamic>> _pendingIncomingCalls = {};
+  void _handleAnswer(String senderUid, Map<String, dynamic> data) async {
+    final pc = _peerConnections[senderUid];
+    if (pc != null) {
+      final answerData = data['answer'] as Map<String, dynamic>;
+      await pc.setRemoteDescription(RTCSessionDescription(answerData['sdp'], answerData['type']));
+      
+      // Process queued candidates
+      final queue = _iceCandidateQueue[senderUid];
+      if (queue != null) {
+        for (final c in queue) {
+          await pc.addCandidate(RTCIceCandidate(c['candidate'], c['sdpMid'], c['sdpMLineIndex']));
+        }
+        _iceCandidateQueue.remove(senderUid);
+      }
+    }
+  }
+
+  void _handleIceCandidate(String senderUid, Map<String, dynamic> data) async {
+    final pc = _peerConnections[senderUid];
+    final candidateData = data['candidate'] as Map<String, dynamic>;
+    
+    if (pc != null && pc.remoteDescription != null) {
+      await pc.addCandidate(RTCIceCandidate(
+        candidateData['candidate'],
+        candidateData['sdpMid'],
+        candidateData['sdpMLineIndex'],
+      ));
+    } else {
+      // Queue until remote description is set
+      _iceCandidateQueue.putIfAbsent(senderUid, () => []).add(candidateData);
+    }
+  }
+
+  @override
+  Future<TransferResponse> sendTransferRequest(DeviceInfo target, List<String> filePaths) async {
+    final roomId = const Uuid().v4();
+    final targetUid = target.id;
+    
+    final pc = await createPeerConnection(_iceServers);
+    _peerConnections[targetUid] = pc;
+    
+    final dcInit = RTCDataChannelInit()
+      ..ordered = true
+      ..maxRetransmits = 30;
+      
+    final dc = await pc.createDataChannel('fastshare_data', dcInit);
+    _dataChannels[targetUid] = dc;
+    _setupDataChannel(dc, targetUid);
+
+    pc.onIceCandidate = (candidate) async {
+      await _signaling.sendIceCandidate(_signaling.uid!, targetUid, roomId, {
+        'candidate': candidate.candidate,
+        'sdpMid': candidate.sdpMid,
+        'sdpMLineIndex': candidate.sdpMlineIndex,
+      });
+    };
+
+    final offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    final request = TransferRequest(
+      senderName: _signaling.username ?? 'Unknown',
+      senderId: _signaling.uid!,
+      files: filePaths.map((p) {
+        final f = File(p);
+        return FileMetadata(
+          id: const Uuid().v4(),
+          name: p.split(Platform.pathSeparator).last,
+          size: f.lengthSync(),
+        );
+      }).toList(),
+    );
+
+    await _signaling.sendOffer(_signaling.uid!, targetUid, roomId, {
+      'type': offer.type,
+      'sdp': offer.sdp,
+      'requestJson': jsonEncode(request.toJson()),
+    });
+
+    // We don't have a direct HTTP-like response from signaling.
+    // The receiver will just connect via WebRTC if they accept.
+    return TransferResponse(accepted: true, token: roomId);
+  }
 
   @override
   Future<void> acceptTransfer(
@@ -244,8 +186,8 @@ class WebRtcTransport implements TransportInterface {
     final callData = _pendingIncomingCalls[callerUid];
     if (callData == null) return;
 
-    final roomId = callData['roomId'];
-    final offerData = callData['offer'];
+    final roomId = callData['roomId'] as String;
+    final offerData = callData['offer'] as Map<String, dynamic>;
 
     _activeSinks[callerUid] = {};
     _expectedSizes[callerUid] = {};
@@ -274,26 +216,31 @@ class WebRtcTransport implements TransportInterface {
       _setupDataChannel(dc, callerUid);
     };
 
-    _setupPeerConnectionListeners(pc, callerUid, false, roomId, _signaling.uid!);
+    pc.onIceCandidate = (candidate) async {
+      await _signaling.sendIceCandidate(_signaling.uid!, callerUid, roomId, {
+        'candidate': candidate.candidate,
+        'sdpMid': candidate.sdpMid,
+        'sdpMLineIndex': candidate.sdpMlineIndex,
+      });
+    };
 
     await pc.setRemoteDescription(RTCSessionDescription(offerData['sdp'], offerData['type']));
+    
+    // Process queued candidates
+    final queue = _iceCandidateQueue[callerUid];
+    if (queue != null) {
+      for (final c in queue) {
+        await pc.addCandidate(RTCIceCandidate(c['candidate'], c['sdpMid'], c['sdpMLineIndex']));
+      }
+      _iceCandidateQueue.remove(callerUid);
+    }
+
     final answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    await _signaling.sendAnswer(_signaling.uid!, roomId, {
+    await _signaling.sendAnswer(_signaling.uid!, callerUid, roomId, {
       'type': answer.type,
       'sdp': answer.sdp,
-    });
-
-    _signaling.listenToIceCandidates(_signaling.uid!, roomId, false).listen((event) async {
-      final data = event.snapshot.value as Map<dynamic, dynamic>?;
-      if (data != null) {
-        await pc.addCandidate(RTCIceCandidate(
-          data['candidate'],
-          data['sdpMid'],
-          data['sdpMLineIndex'],
-        ));
-      }
     });
 
     _pendingIncomingCalls.remove(callerUid);
@@ -304,7 +251,7 @@ class WebRtcTransport implements TransportInterface {
     final callerUid = request.senderId;
     final callData = _pendingIncomingCalls[callerUid];
     if (callData != null) {
-      final roomId = callData['roomId'];
+      final roomId = callData['roomId'] as String;
       await _signaling.endCall(_signaling.uid!, roomId);
       _pendingIncomingCalls.remove(callerUid);
     }
@@ -313,7 +260,6 @@ class WebRtcTransport implements TransportInterface {
   void _setupDataChannel(RTCDataChannel dc, String targetUid) {
     dc.onMessage = (RTCDataChannelMessage message) {
       if (message.isBinary) {
-        // Binary Data Channel message decoding
         final data = message.binary;
         if (data.length < 4) return;
         
@@ -366,6 +312,14 @@ class WebRtcTransport implements TransportInterface {
     }
   }
 
+  void _cleanupConnection(String uid) {
+    _peerConnections[uid]?.close();
+    _peerConnections.remove(uid);
+    _dataChannels[uid]?.close();
+    _dataChannels.remove(uid);
+    _activeSinks.remove(uid);
+  }
+
   void _sendFrame(RTCDataChannel dc, Map<String, dynamic> jsonHeader, [List<int>? payload]) {
     final jsonStr = jsonEncode(jsonHeader);
     final jsonBytes = utf8.encode(jsonStr);
@@ -395,7 +349,6 @@ class WebRtcTransport implements TransportInterface {
     final dc = _dataChannels[targetUid];
     if (dc == null) throw StateError('No active WebRTC DataChannel for ${target.name}');
 
-    // Wait until data channel is open
     while (dc.state != RTCDataChannelState.RTCDataChannelOpen) {
       await Future.delayed(const Duration(milliseconds: 100));
       if (dc.state == RTCDataChannelState.RTCDataChannelClosed) {
@@ -408,16 +361,14 @@ class WebRtcTransport implements TransportInterface {
     int bytesSent = 0;
     
     final raf = await file.open(mode: FileMode.read);
-    const chunkSize = 64 * 1024; // 64KB for WebRTC stability (max msg size is often 256KB or 16MB depending on SCTP stack, but 64KB is universally safe)
+    const chunkSize = 64 * 1024;
     int lastUpdate = DateTime.now().millisecondsSinceEpoch;
     
     final digestSink = _DigestSink();
     final byteSink = crypto.sha256.startChunkedConversion(digestSink);
     
     while (bytesSent < size) {
-      // PRODUCTION IMPROVEMENT: Handle SCTP Backpressure!
-      // If the buffer gets too large, wait for it to drain to avoid Out Of Memory.
-      while ((dc.bufferedAmount ?? 0) > 1024 * 1024 * 4) { // Pause if > 4MB buffered
+      while ((dc.bufferedAmount ?? 0) > 1024 * 1024 * 4) {
         await Future.delayed(const Duration(milliseconds: 50));
       }
 

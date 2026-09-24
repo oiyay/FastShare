@@ -67,7 +67,7 @@ class _GlobalShareScreenState extends State<GlobalShareScreen> {
                               children: [
                                 const Text('You are visible globally as:', style: TextStyle(fontSize: 12, color: Colors.grey)),
                                 Text(
-                                  '@${SignalingService().uid != null ? "connected" : "unknown"}', // Will update later to show real username
+                                  SignalingService().username ?? '@unknown',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                                 ),
                               ],
