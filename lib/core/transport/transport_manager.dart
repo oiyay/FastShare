@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:fast_share/core/models/device_info.dart';
 import 'package:fast_share/core/models/transfer_request.dart';
+import 'package:fast_share/core/models/exceptions.dart';
 import 'package:fast_share/core/services/settings_service.dart';
 import 'package:fast_share/core/transport/transport_interface.dart';
 import 'package:fast_share/core/transport/http_transport.dart';
@@ -120,6 +121,7 @@ class TransportManager {
     DeviceInfo target,
     List<String> filePaths, {
     void Function(double progress)? onProgress,
+    String? pin,
   }) async {
     if (_selfInfo == null) throw StateError('TransportManager not initialized');
     
@@ -146,7 +148,7 @@ class TransportManager {
 
     // Send request (handshake)
     print('[TransportManager] Sending transfer request to ${target.name}...');
-    final response = await transport.sendTransferRequest(target, request);
+    final response = await transport.sendTransferRequest(target, request, pin: pin);
 
     if (!response.accepted) {
       throw Exception('Transfer rejected by ${target.name}');

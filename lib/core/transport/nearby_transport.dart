@@ -111,7 +111,7 @@ class NearbyTransport implements TransportInterface {
   @override
   Future<TransferResponse> sendTransferRequest(
     DeviceInfo target,
-    TransferRequest request,
+    TransferRequest request, {String? pin,}
   ) async {
     if (!Platform.isAndroid) {
       throw UnsupportedError('NearbyTransport is only supported on Android.');
@@ -185,7 +185,7 @@ class NearbyTransport implements TransportInterface {
 
   @override
   Future<void> acceptTransfer(
-    TransferRequest request,
+    TransferRequest request, {String? pin,}
     String savePath, {
     void Function(String fileName, double progress)? onProgress,
   }) async {

@@ -25,8 +25,9 @@ abstract class TransportInterface {
   /// Returns the target's response (accepted/rejected + token).
   Future<TransferResponse> sendTransferRequest(
     DeviceInfo target,
-    TransferRequest request,
-  );
+    TransferRequest request, {
+    String? pin,
+  });
 
   /// Stream-send a file to the target device.
   /// Uses streaming so large files don't crash the app.

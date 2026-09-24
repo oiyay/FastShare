@@ -386,8 +386,24 @@ class HttpTransport implements TransportInterface {
     if (request.method == 'POST' && path == 'api/localsend/v2/register') {
       return _handleLocalSendRegister(request);
     }
+    if (request.method == 'POST' && path == 'api/localsend/v2/cancel') {
+      return _handleLocalSendCancel(request);
+    }
 
     return shelf.Response.notFound('Not found');
+  }
+
+  Future<shelf.Response> _handleLocalSendCancel(shelf.Request request) async {
+    final sessionId = request.url.queryParameters['sessionId'];
+    if (sessionId != null) {
+      // Find and complete the pending request with false
+      for (final completer in _pendingRequests.values) {
+        if (!completer.isCompleted) {
+           completer.complete(TransferResponse(accepted: false));
+        }
+      }
+    }
+    return shelf.Response.ok(jsonEncode({'status': 'canceled'}));
   }
 
   Future<shelf.Response> _handleLocalSendRegister(shelf.Request request) async {
@@ -620,7 +636,7 @@ class HttpTransport implements TransportInterface {
   @override
   Future<TransferResponse> sendTransferRequest(
     DeviceInfo target,
-    TransferRequest request,
+    TransferRequest request, {String? pin,}
   ) async {
     // Verify device is reachable first
     try {
@@ -735,7 +751,7 @@ class HttpTransport implements TransportInterface {
 
   @override
   Future<void> acceptTransfer(
-    TransferRequest request,
+    TransferRequest request, {String? pin,}
     String savePath, {
     void Function(String fileName, double progress)? onProgress,
   }) async {

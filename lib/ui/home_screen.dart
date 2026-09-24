@@ -6,6 +6,7 @@ import 'package:file_picker/file_picker.dart';
 
 import 'package:fast_share/core/models/device_info.dart';
 import 'package:fast_share/core/models/transfer_request.dart';
+import 'package:fast_share/core/models/exceptions.dart';
 import 'package:fast_share/core/services/settings_service.dart';
 import 'package:fast_share/core/transport/transport_manager.dart';
 import 'package:fast_share/ui/settings_screen.dart';
@@ -199,7 +200,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// Send files directly via FastShare protocol
-  Future<void> _sendFilePaths(List<String> filePaths) async {
+  Future<void> _sendFilePaths(List<String> filePaths, [String? pin]) async {
     if (_selectedDevice == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Select a device first!')),
@@ -207,25 +208,28 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
-    // Add to transfers list
-    setState(() {
-      for (final path in filePaths) {
-        final name = path.split('/').last.split('\\').last;
-        final file = File(path);
-        _transfers.insert(0, TransferInfo(
-          fileName: name,
-          fileSize: file.existsSync() ? file.lengthSync() : 0,
-          status: TransferStatus.sending,
-          isOutgoing: true,
-        ));
-      }
-    });
+    // Add to transfers list ONLY if we don't already have it (retries with PIN)
+    if (pin == null) {
+      setState(() {
+        for (final path in filePaths) {
+          final name = path.split('/').last.split('\\').last;
+          final file = File(path);
+          _transfers.insert(0, TransferInfo(
+            fileName: name,
+            fileSize: file.existsSync() ? file.lengthSync() : 0,
+            status: TransferStatus.sending,
+            isOutgoing: true,
+          ));
+        }
+      });
+    }
 
     // Send files
     try {
       await _transport.sendFiles(
         _selectedDevice!,
         filePaths,
+        pin: pin,
         onProgress: (progress) {
           if (mounted && _transfers.isNotEmpty) {
             setState(() {
@@ -249,6 +253,50 @@ class _HomeScreenState extends State<HomeScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Files sent successfully! ✅')),
           );
+        }
+      }
+    } on PinRequiredException catch (_) {
+      // Show PIN dialog and retry
+      if (mounted) {
+        final pinController = TextEditingController();
+        final enteredPin = await showDialog<String>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            title: const Text('PIN Required'),
+            content: TextField(
+              controller: pinController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'Enter PIN for LocalSend device',
+                border: OutlineInputBorder(),
+              ),
+              autofocus: true,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, pinController.text),
+                child: const Text('Submit'),
+              ),
+            ],
+          ),
+        );
+        
+        if (enteredPin != null && enteredPin.isNotEmpty) {
+          await _sendFilePaths(filePaths, enteredPin); // Retry with PIN
+        } else {
+          // User canceled PIN input
+          if (mounted) {
+            setState(() {
+              if (_transfers.isNotEmpty) {
+                _transfers[0] = _transfers[0].copyWith(status: TransferStatus.failed);
+              }
+            });
+          }
         }
       }
     } catch (e) {

@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import 'package:fast_share/core/models/device_info.dart';
 import 'package:fast_share/core/models/transfer_request.dart';
+import 'package:fast_share/core/models/exceptions.dart';
 import 'package:fast_share/core/transport/transport_interface.dart';
 
 class LocalSendTransport implements TransportInterface {
@@ -51,9 +52,9 @@ class LocalSendTransport implements TransportInterface {
   @override
   Future<TransferResponse> sendTransferRequest(
     DeviceInfo target,
-    TransferRequest request,
+    TransferRequest request, {String? pin,}
   ) async {
-    final uri = Uri.parse('https://${target.ip}:${target.port}/api/localsend/v2/prepare-upload');
+    final uri = Uri.parse('https://${target.ip}:${target.port}/api/localsend/v2/prepare-upload${pin != null ? "?pin=$pin" : ""}');
     
     final filesMap = <String, dynamic>{};
     for (final file in request.files) {
@@ -99,6 +100,8 @@ class LocalSendTransport implements TransportInterface {
         return TransferResponse(accepted: true, token: sessionId);
       } else if (response.statusCode == 403) {
         return TransferResponse(accepted: false);
+      } else if (response.statusCode == 401) {
+        throw PinRequiredException();
       }
       
       throw Exception('LocalSend device returned ${response.statusCode}');
@@ -173,7 +176,7 @@ class LocalSendTransport implements TransportInterface {
 
   @override
   Future<void> acceptTransfer(
-    TransferRequest request,
+    TransferRequest request, {String? pin,}
     String savePath, {
     void Function(String fileName, double progress)? onProgress,
   }) async {}
