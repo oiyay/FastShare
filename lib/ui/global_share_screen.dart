@@ -84,7 +84,7 @@ class _GlobalShareScreenState extends State<GlobalShareScreen> {
                     const Divider(height: 1),
                     Expanded(
                       child: StreamBuilder<List<GlobalUser>>(
-                        stream: SignalingService().getOnlineUsers(),
+                        stream: SignalingService().onlineUsers,
                         builder: (context, snapshot) {
                           if (snapshot.hasError) {
                             return Center(child: Text('Error: ${snapshot.error}'));

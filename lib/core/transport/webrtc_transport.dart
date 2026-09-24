@@ -11,7 +11,7 @@ import 'package:fast_share/core/models/transfer_request.dart';
 import 'package:fast_share/core/transport/transport_interface.dart';
 import 'package:fast_share/core/services/signaling_service.dart';
 
-class _DigestSink extends Sink<crypto.Digest> {
+class _DigestSink implements Sink<crypto.Digest> {
   crypto.Digest? digest;
   @override
   void add(crypto.Digest data) => digest = data;
@@ -113,7 +113,7 @@ class WebRtcTransport implements TransportInterface {
     final pc = _peerConnections[senderUid];
     final candidateData = data['candidate'] as Map<String, dynamic>;
     
-    if (pc != null && pc.remoteDescription != null) {
+    if (pc != null && await pc.getRemoteDescription() != null) {
       await pc.addCandidate(RTCIceCandidate(
         candidateData['candidate'],
         candidateData['sdpMid'],
@@ -126,7 +126,32 @@ class WebRtcTransport implements TransportInterface {
   }
 
   @override
-  Future<TransferResponse> sendTransferRequest(DeviceInfo target, List<String> filePaths) async {
+  Future<void> dispose() async {
+    _signalingSub?.cancel();
+    _requestController.close();
+    for (final pc in _peerConnections.values) {
+      pc.close();
+    }
+    _peerConnections.clear();
+  }
+
+  @override
+  Stream<DeviceInfo> discoverDevices() {
+    return const Stream.empty();
+  }
+
+  @override
+  Future<void> startAdvertising(DeviceInfo selfInfo) async {}
+
+  @override
+  Future<void> stopAdvertising() async {}
+
+  @override
+  Future<TransferResponse> sendTransferRequest(
+    DeviceInfo target,
+    TransferRequest request, {
+    String? pin,
+  }) async {
     final roomId = const Uuid().v4();
     final targetUid = target.id;
     
@@ -145,25 +170,12 @@ class WebRtcTransport implements TransportInterface {
       await _signaling.sendIceCandidate(_signaling.uid!, targetUid, roomId, {
         'candidate': candidate.candidate,
         'sdpMid': candidate.sdpMid,
-        'sdpMLineIndex': candidate.sdpMlineIndex,
+        'sdpMLineIndex': candidate.sdpMLineIndex,
       });
     };
 
     final offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-
-    final request = TransferRequest(
-      senderName: _signaling.username ?? 'Unknown',
-      senderId: _signaling.uid!,
-      files: filePaths.map((p) {
-        final f = File(p);
-        return FileMetadata(
-          id: const Uuid().v4(),
-          name: p.split(Platform.pathSeparator).last,
-          size: f.lengthSync(),
-        );
-      }).toList(),
-    );
 
     await _signaling.sendOffer(_signaling.uid!, targetUid, roomId, {
       'type': offer.type,
@@ -220,7 +232,7 @@ class WebRtcTransport implements TransportInterface {
       await _signaling.sendIceCandidate(_signaling.uid!, callerUid, roomId, {
         'candidate': candidate.candidate,
         'sdpMid': candidate.sdpMid,
-        'sdpMLineIndex': candidate.sdpMlineIndex,
+        'sdpMLineIndex': candidate.sdpMLineIndex,
       });
     };
 
