@@ -259,29 +259,41 @@ class HttpTransport implements TransportInterface {
   }
 
   Future<void> _pingLocalSendDevice(String ip) async {
-    try {
-      final uri = Uri.parse('http://$ip:53317/api/localsend/v2/info');
-      final response = await http.get(uri).timeout(const Duration(milliseconds: 1500));
-      
-      if (response.statusCode == 200) {
-        final json = jsonDecode(response.body) as Map<String, dynamic>;
-        final device = DeviceInfo(
-          id: json['fingerprint'] ?? 'localsend-$ip',
-          name: '${json['alias'] ?? 'LocalSend Device'}',
-          os: (json['deviceModel'] ?? 'Unknown').toString().toLowerCase(),
-          ip: ip,
-          port: json['port'] ?? 53317,
-          protocol: 'localsend',
-        );
+    // LocalSend uses self-signed HTTPS by default. We must allow bad certificates.
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(milliseconds: 1500)
+      ..badCertificateCallback = (X509Certificate cert, String host, int port) => true;
 
-        final updated = device.copyWith(lastSeen: DateTime.now());
-        _discoveredDevices[updated.id] = updated;
-        _deviceController.add(updated);
-        print('[HttpTransport] HTTP Sweep found LocalSend at $ip');
+    // Try HTTPS first, then HTTP fallback
+    for (final scheme in ['https', 'http']) {
+      try {
+        final uri = Uri.parse('$scheme://$ip:53317/api/localsend/v2/info');
+        final request = await client.getUrl(uri);
+        final response = await request.close();
+
+        if (response.statusCode == 200) {
+          final body = await response.transform(utf8.decoder).join();
+          final json = jsonDecode(body) as Map<String, dynamic>;
+          final device = DeviceInfo(
+            id: json['fingerprint'] ?? 'localsend-$ip',
+            name: '${json['alias'] ?? 'LocalSend Device'}',
+            os: (json['deviceModel'] ?? 'Unknown').toString().toLowerCase(),
+            ip: ip,
+            port: json['port'] ?? 53317,
+            protocol: 'localsend',
+          );
+
+          final updated = device.copyWith(lastSeen: DateTime.now());
+          _discoveredDevices[updated.id] = updated;
+          _deviceController.add(updated);
+          print('[HttpTransport] HTTP Sweep found LocalSend at $ip via $scheme');
+          break; // Stop trying other schemes if we found it
+        }
+      } catch (_) {
+        // Ignore timeouts and connection errors
       }
-    } catch (_) {
-      // Ignore timeouts and connection refused
     }
+    client.close();
   }
 
   // ──────────────────────────────────────────
