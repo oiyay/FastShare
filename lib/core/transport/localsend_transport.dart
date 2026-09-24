@@ -106,6 +106,9 @@ class LocalSendTransport implements TransportInterface {
       
       throw Exception('LocalSend device returned ${response.statusCode}');
     } catch (e) {
+      if (e is PinRequiredException) {
+        rethrow;
+      }
       throw Exception('Failed to connect to LocalSend device: $e');
     }
   }
