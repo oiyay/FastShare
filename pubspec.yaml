@@ -22,7 +22,7 @@ dependencies:
   path: ^1.9.0
   shared_preferences: ^2.2.3
   permission_handler: ^11.3.1
-  nearby_connections: ^3.1.5
+  nearby_connections: ^4.3.0
 
 dev_dependencies:
   flutter_test:
