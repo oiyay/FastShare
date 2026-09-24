@@ -287,6 +287,27 @@ class HttpTransport implements TransportInterface {
           _discoveredDevices[updated.id] = updated;
           _deviceController.add(updated);
           print('[HttpTransport] HTTP Sweep found LocalSend at $ip via $scheme');
+
+          // Immediately introduce ourselves to the LocalSend device so it updates its UI too!
+          if (_selfInfo != null) {
+            try {
+              final registerUri = Uri.parse('$scheme://$ip:53317/api/localsend/v2/register');
+              final registerReq = await client.postUrl(registerUri);
+              registerReq.headers.contentType = ContentType.json;
+              registerReq.write(jsonEncode({
+                'alias': _selfInfo!.name,
+                'version': '2.0',
+                'deviceModel': _selfInfo!.os,
+                'deviceType': _selfInfo!.os == 'android' ? 'mobile' : 'desktop',
+                'fingerprint': _selfInfo!.id,
+                'port': _selfInfo!.port,
+                'protocol': 'http',
+                'download': true,
+              }));
+              await registerReq.close();
+            } catch (_) {}
+          }
+
           break; // Stop trying other schemes if we found it
         }
       } catch (_) {
