@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:uuid/uuid.dart';
 import 'package:fast_share/core/services/settings_service.dart';
@@ -57,9 +58,10 @@ class SignalingService {
     _channel = _supabase!.channel('global_p2p');
 
     // Handle Presence updates
-    _channel!.onPresenceSync((_) {
+    _channel!.onPresenceSync((_) async {
       final state = _channel!.presenceState();
       final users = <GlobalUser>[];
+      bool collisionDetected = false;
       
       for (final clientState in state) {
         for (final presence in clientState.presences) {
@@ -68,15 +70,36 @@ class SignalingService {
           final pUid = payload['uid'] as String?;
           final pUsername = payload['username'] as String?;
           
-          if (pUid != null && pUsername != null && pUid != _uid) {
-            users.add(GlobalUser(
-              uid: pUid,
-              username: pUsername,
-              lastActive: DateTime.now(),
-            ));
+          if (pUid != null && pUsername != null) {
+            if (pUid != _uid) {
+              users.add(GlobalUser(
+                uid: pUid,
+                username: pUsername,
+                lastActive: DateTime.now(),
+              ));
+              if (pUsername == _username) {
+                collisionDetected = true;
+              }
+            }
           }
         }
       }
+
+      if (collisionDetected) {
+        final suffix = (1000 + Random().nextInt(9000)).toString();
+        _username = '$_username#$suffix';
+        settings.username = _username!;
+        
+        // Retrack our presence with the new unique username
+        if (_channel != null) {
+          await _channel!.track({
+            'uid': _uid,
+            'username': _username,
+            'online_at': DateTime.now().toIso8601String(),
+          });
+        }
+      }
+
       _currentUsers = users;
       _usersController.add(users);
     });
