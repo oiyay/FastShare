@@ -132,7 +132,7 @@ class _GlobalShareScreenState extends State<GlobalShareScreen> {
                                         await TransportManager().sendFiles(
                                           target,
                                           result.paths.where((p) => p != null).cast<String>().toList(),
-                                          onProgress: (p) => print('Progress: $p'),
+                                          onProgress: (name, p, overall) => print('Progress [$name]: $p (Overall: $overall)'),
                                         );
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           const SnackBar(content: Text('Global transfer complete!')),

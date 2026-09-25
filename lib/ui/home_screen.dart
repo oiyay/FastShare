@@ -232,10 +232,15 @@ class _HomeScreenState extends State<HomeScreen> {
         _selectedDevice!,
         filePaths,
         pin: pin,
-        onProgress: (progress) {
-          if (mounted && _transfers.isNotEmpty) {
+        onProgress: (fileName, fileProgress, overallProgress) {
+          if (mounted) {
             setState(() {
-              _transfers[0] = _transfers[0].copyWith(progress: progress);
+              for (int i = 0; i < _transfers.length; i++) {
+                if (_transfers[i].fileName == fileName && _transfers[i].isOutgoing) {
+                  _transfers[i] = _transfers[i].copyWith(progress: fileProgress);
+                  break;
+                }
+              }
             });
           }
         },

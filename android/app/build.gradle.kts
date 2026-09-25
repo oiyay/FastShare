@@ -47,7 +47,9 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            // For open-source GitHub Actions, we fallback to the debug keystore 
+            // so anyone can build and install a valid APK without needing the private key.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
 }

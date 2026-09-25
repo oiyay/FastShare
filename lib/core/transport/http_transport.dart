@@ -259,12 +259,18 @@ class HttpTransport implements TransportInterface {
     final prefix = '${parts[0]}.${parts[1]}.${parts[2]}';
     print('[HttpTransport] Starting aggressive HTTP sweep on $prefix.0/24');
 
-    // Sweep 1..254 concurrently
+    // Sweep 1..254 in batches of 30 to prevent UI freezing and socket exhaustion
+    final ips = <String>[];
     for (int i = 1; i <= 254; i++) {
       final targetIp = '$prefix.$i';
-      if (targetIp == localIp) continue;
-      
-      _pingLocalSendDevice(targetIp);
+      if (targetIp != localIp) ips.add(targetIp);
+    }
+
+    for (int i = 0; i < ips.length; i += 30) {
+      final batch = ips.skip(i).take(30);
+      await Future.wait(batch.map((ip) => _pingLocalSendDevice(ip)));
+      // Tiny delay between batches to let the event loop breathe
+      await Future.delayed(const Duration(milliseconds: 50));
     }
   }
 

@@ -91,12 +91,14 @@ class TransportManager {
 
     await _httpTransport.startAdvertising(_selfInfo!);
     _httpTransport.discoverDevices().listen((device) {
+      _discoveredCache[device.id] = device;
       _deviceController.add(device);
     });
 
     if (NearbyTransport.isSupported) {
       await _nearbyTransport.startAdvertising(_selfInfo!);
       _nearbyTransport.discoverDevices().listen((device) {
+        _discoveredCache[device.id] = device;
         _deviceController.add(device);
       });
     }
@@ -104,6 +106,7 @@ class TransportManager {
 
   /// Trigger a manual refresh for devices
   void refreshDiscovery() {
+    _discoveredCache.clear();
     _httpTransport.refreshDiscovery();
   }
 
@@ -116,7 +119,14 @@ class TransportManager {
   }
 
   /// Stream of discovered devices from all transports.
-  Stream<DeviceInfo> get devices => _deviceController.stream;
+  final Map<String, DeviceInfo> _discoveredCache = {};
+
+  Stream<DeviceInfo> get devices async* {
+    for (final d in _discoveredCache.values) {
+      yield d;
+    }
+    yield* _deviceController.stream;
+  }
 
   /// Stream of incoming transfer requests from all transports.
   Stream<TransferRequest> get incomingRequests => _requestController.stream;
@@ -129,7 +139,7 @@ class TransportManager {
   Future<void> sendFiles(
     DeviceInfo target,
     List<String> filePaths, {
-    void Function(double progress)? onProgress,
+    void Function(String fileName, double fileProgress, double overallProgress)? onProgress,
     String? pin,
   }) async {
     if (_selfInfo == null) throw StateError('TransportManager not initialized');
@@ -165,10 +175,11 @@ class TransportManager {
 
     // Send each file
     for (int i = 0; i < filePaths.length; i++) {
+      final fileName = files[i].name;
       final fileProgress = (double p) {
         // Calculate overall progress across all files
         final overallProgress = (i + p) / filePaths.length;
-        onProgress?.call(overallProgress);
+        onProgress?.call(fileName, p, overallProgress);
       };
 
       await transport.sendFile(
