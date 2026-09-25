@@ -30,10 +30,10 @@ android {
 
     signingConfigs {
         create("release") {
-            keyAlias = keystoreProperties["keyAlias"] as String? ?: System.getenv("KEY_ALIAS") ?: ""
-            keyPassword = keystoreProperties["keyPassword"] as String? ?: System.getenv("KEY_PASSWORD") ?: ""
+            keyAlias = keystoreProperties["keyAlias"] as String? ?: System.getenv("KEY_ALIAS") ?: "fastshare"
+            keyPassword = keystoreProperties["keyPassword"] as String? ?: System.getenv("KEY_PASSWORD") ?: "fastshare123"
             storeFile = file(keystoreProperties["storeFile"] as String? ?: System.getenv("KEYSTORE_PATH") ?: "fastshare-release.jks")
-            storePassword = keystoreProperties["storePassword"] as String? ?: System.getenv("STORE_PASSWORD") ?: ""
+            storePassword = keystoreProperties["storePassword"] as String? ?: System.getenv("STORE_PASSWORD") ?: "fastshare123"
         }
     }
 
@@ -47,9 +47,7 @@ android {
 
     buildTypes {
         release {
-            // For open-source GitHub Actions, we fallback to the debug keystore 
-            // so anyone can build and install a valid APK without needing the private key.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 }
