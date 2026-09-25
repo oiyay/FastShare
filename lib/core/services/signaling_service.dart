@@ -51,7 +51,7 @@ class SignalingService {
 
     _uid = const Uuid().v4();
     final settings = SettingsService();
-    _username = settings.effectiveUsername;
+    _username = settings.username.isNotEmpty ? settings.username : 'Guest';
 
     // Join the global channel for presence and signaling
     _channel = _supabase!.channel('global_p2p');

@@ -45,11 +45,6 @@ class SettingsService {
     _notify();
   }
 
-  String get effectiveUsername {
-    final u = username;
-    return u.isNotEmpty ? u : deviceName;
-  }
-
   // ── Save Path ────────────────────────────
 
   String get savePath {

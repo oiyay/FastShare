@@ -44,12 +44,12 @@ class TransportManager {
 
     final localIp = await HttpTransport.getLocalIp();
     final settings = SettingsService();
-    final username = settings.effectiveUsername;
+    final deviceName = settings.deviceName;
     final os = _getCurrentOS();
 
     _selfInfo = DeviceInfo(
       id: const Uuid().v4(),
-      name: username,
+      name: deviceName,
       os: os,
       ip: localIp,
       port: _httpTransport.httpPort,
@@ -70,7 +70,7 @@ class TransportManager {
 
     settings.onSettingsChanged.listen((_) {
       if (_selfInfo != null) {
-        final newName = settings.effectiveUsername;
+        final newName = settings.deviceName;
         if (_selfInfo!.name != newName) {
           _selfInfo = _selfInfo!.copyWith(name: newName);
           _httpTransport.startAdvertising(_selfInfo!);

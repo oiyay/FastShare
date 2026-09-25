@@ -66,7 +66,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   leading: const Icon(Icons.person_outline),
                   title: const Text('Username'),
                   subtitle: Text(_settings.username.isEmpty 
-                      ? 'Not set (defaults to Device Name)' 
+                      ? 'Not set (defaults to Guest)' 
                       : _settings.username),
                   trailing: const Icon(Icons.edit, size: 20),
                   onTap: _editUsername,
