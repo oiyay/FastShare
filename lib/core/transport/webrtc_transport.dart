@@ -175,6 +175,13 @@ class WebRtcTransport implements TransportInterface {
       });
     };
 
+    pc.onIceConnectionState = (state) {
+      print('Sender ICE Connection State: $state');
+      if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+        _cleanupConnection(targetUid);
+      }
+    };
+
     final offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
@@ -235,6 +242,13 @@ class WebRtcTransport implements TransportInterface {
         'sdpMid': candidate.sdpMid,
         'sdpMLineIndex': candidate.sdpMLineIndex,
       });
+    };
+
+    pc.onIceConnectionState = (state) {
+      print('Receiver ICE Connection State: $state');
+      if (state == RTCIceConnectionState.RTCIceConnectionStateFailed) {
+        _cleanupConnection(callerUid);
+      }
     };
 
     await pc.setRemoteDescription(RTCSessionDescription(offerData['sdp'], offerData['type']));
@@ -362,10 +376,17 @@ class WebRtcTransport implements TransportInterface {
     final dc = _dataChannels[targetUid];
     if (dc == null) throw StateError('No active WebRTC DataChannel for ${target.name}');
 
+    int waitTime = 0;
     while (dc.state != RTCDataChannelState.RTCDataChannelOpen) {
       await Future.delayed(const Duration(milliseconds: 100));
+      waitTime += 100;
+      
       if (dc.state == RTCDataChannelState.RTCDataChannelClosed) {
-        throw Exception('Data Channel closed prematurely');
+        throw Exception('Data Channel closed prematurely. The receiver may have rejected the transfer or disconnected.');
+      }
+      
+      if (waitTime >= 15000) {
+        throw Exception('Connection timeout. The WebRTC P2P connection could not be established (likely due to strict NAT/firewalls blocking STUN).');
       }
     }
 

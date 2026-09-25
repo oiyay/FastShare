@@ -54,6 +54,19 @@ class SignalingService {
     final settings = SettingsService();
     _username = settings.username.isNotEmpty ? settings.username : 'Guest';
 
+    // Listen for username changes
+    settings.onSettingsChanged.listen((_) {
+      final newUsername = settings.username.isNotEmpty ? settings.username : 'Guest';
+      if (newUsername != _username && _channel != null) {
+        _username = newUsername;
+        _channel!.track({
+          'uid': _uid,
+          'username': _username,
+          'online_at': DateTime.now().toIso8601String(),
+        });
+      }
+    });
+
     // Join the global channel for presence and signaling
     _channel = _supabase!.channel('global_p2p');
 
@@ -158,7 +171,7 @@ class SignalingService {
   }
 
   Future<void> sendAnswer(String callerUid, String targetUid, String roomId, Map<String, dynamic> answerData) async {
-    await sendSignal(targetUid: callerUid, type: 'answer', data: {
+    await sendSignal(targetUid: targetUid, type: 'answer', data: {
       'roomId': roomId,
       'answer': answerData,
     });
