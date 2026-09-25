@@ -14,18 +14,27 @@ class FilesScreen extends StatefulWidget {
 }
 
 class _FilesScreenState extends State<FilesScreen> {
-  late String _currentPath;
+  late String _currentPath = '';
   List<FileSystemEntity> _items = [];
   bool _isLoading = false;
 
   @override
   void initState() {
     super.initState();
-    _currentPath = widget.initialPath ?? SettingsService().savePath;
+    _initializePath();
+  }
+
+  Future<void> _initializePath() async {
+    if (widget.initialPath != null) {
+      _currentPath = widget.initialPath!;
+    } else {
+      _currentPath = await SettingsService().getEffectiveSavePath();
+    }
     _loadFiles();
   }
 
   Future<void> _loadFiles() async {
+    if (_currentPath.isEmpty) return;
     setState(() => _isLoading = true);
     try {
       final dir = Directory(_currentPath);

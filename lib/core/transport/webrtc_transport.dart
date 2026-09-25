@@ -76,12 +76,13 @@ class WebRtcTransport implements TransportInterface {
     if (reqDataStr == null) return;
     
     final reqData = jsonDecode(reqDataStr) as Map<String, dynamic>;
-    final files = (reqData['files'] as List).map((f) => FileMetadata.fromJson(f)).toList();
     
+    // We MUST use senderUid (the signaling ID) instead of the one in JSON (which is TransportManager's ID).
+    // Otherwise, the receiver won't be able to send the Answer back to the correct signaling target.
     final request = TransferRequest(
-      senderName: reqData['senderName'].toString(),
-      senderId: senderUid,
-      files: files,
+      senderName: reqData['sender_name'].toString(),
+      senderId: senderUid, 
+      files: (reqData['files'] as List).map((f) => FileMetadata.fromJson(f)).toList(),
     );
 
     _pendingIncomingCalls[senderUid] = {
