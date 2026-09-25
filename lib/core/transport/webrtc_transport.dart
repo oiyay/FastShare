@@ -42,6 +42,16 @@ class WebRtcTransport implements TransportInterface {
     'iceServers': [
       {'urls': 'stun:stun.l.google.com:19302'},
       {'urls': 'stun:stun1.l.google.com:19302'},
+      {
+        'urls': 'turn:openrelay.metered.ca:80',
+        'username': 'openrelayproject',
+        'credential': 'openrelayproject'
+      },
+      {
+        'urls': 'turn:openrelay.metered.ca:443',
+        'username': 'openrelayproject',
+        'credential': 'openrelayproject'
+      }
     ]
   };
 
@@ -160,14 +170,14 @@ class WebRtcTransport implements TransportInterface {
     _peerConnections[targetUid] = pc;
     
     final dcInit = RTCDataChannelInit()
-      ..ordered = true
-      ..maxRetransmits = 30;
+      ..ordered = true; // Fully reliable and ordered for file transfers
       
     final dc = await pc.createDataChannel('fastshare_data', dcInit);
     _dataChannels[targetUid] = dc;
     _setupDataChannel(dc, targetUid);
 
     pc.onIceCandidate = (candidate) async {
+      if (candidate.candidate == null || candidate.candidate!.isEmpty) return;
       await _signaling.sendIceCandidate(_signaling.uid!, targetUid, roomId, {
         'candidate': candidate.candidate,
         'sdpMid': candidate.sdpMid,
@@ -237,6 +247,7 @@ class WebRtcTransport implements TransportInterface {
     };
 
     pc.onIceCandidate = (candidate) async {
+      if (candidate.candidate == null || candidate.candidate!.isEmpty) return;
       await _signaling.sendIceCandidate(_signaling.uid!, callerUid, roomId, {
         'candidate': candidate.candidate,
         'sdpMid': candidate.sdpMid,

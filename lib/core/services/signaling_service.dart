@@ -73,7 +73,7 @@ class SignalingService {
     // Handle Presence updates
     _channel!.onPresenceSync((_) async {
       final state = _channel!.presenceState();
-      final users = <GlobalUser>[];
+      final Map<String, GlobalUser> uniqueUsers = {};
       bool collisionDetected = false;
       
       for (final clientState in state) {
@@ -85,11 +85,11 @@ class SignalingService {
           
           if (pUid != null && pUsername != null) {
             if (pUid != _uid) {
-              users.add(GlobalUser(
+              uniqueUsers[pUid] = GlobalUser(
                 uid: pUid,
                 username: pUsername,
                 lastActive: DateTime.now(),
-              ));
+              );
               if (pUsername == _username) {
                 collisionDetected = true;
               }
@@ -97,6 +97,8 @@ class SignalingService {
           }
         }
       }
+      
+      _currentUsers = uniqueUsers.values.toList();
 
       if (collisionDetected) {
         final suffix = (1000 + Random().nextInt(9000)).toString();
@@ -113,8 +115,7 @@ class SignalingService {
         }
       }
 
-      _currentUsers = users;
-      _usersController.add(users);
+      _usersController.add(_currentUsers);
     });
 
     // Handle direct signaling messages

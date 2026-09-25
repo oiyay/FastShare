@@ -249,11 +249,17 @@ class _HomeScreenState extends State<HomeScreen> {
       // Mark as completed
       if (mounted) {
         setState(() {
-          for (int i = 0; i < filePaths.length && i < _transfers.length; i++) {
-            _transfers[i] = _transfers[i].copyWith(
-              status: TransferStatus.completed,
-              progress: 1.0,
-            );
+          for (final path in filePaths) {
+            final fileName = path.split('/').last.split('\\').last;
+            for (int i = 0; i < _transfers.length; i++) {
+              if (_transfers[i].fileName == fileName && _transfers[i].isOutgoing) {
+                _transfers[i] = _transfers[i].copyWith(
+                  status: TransferStatus.completed,
+                  progress: 1.0,
+                );
+                break;
+              }
+            }
           }
         });
         if (_settings.showNotifications) {
@@ -299,8 +305,14 @@ class _HomeScreenState extends State<HomeScreen> {
           // User canceled PIN input
           if (mounted) {
             setState(() {
-              if (_transfers.isNotEmpty) {
-                _transfers[0] = _transfers[0].copyWith(status: TransferStatus.failed);
+              for (final path in filePaths) {
+                final fileName = path.split('/').last.split('\\').last;
+                for (int i = 0; i < _transfers.length; i++) {
+                  if (_transfers[i].fileName == fileName && _transfers[i].isOutgoing) {
+                    _transfers[i] = _transfers[i].copyWith(status: TransferStatus.failed);
+                    break;
+                  }
+                }
               }
             });
           }
@@ -309,8 +321,14 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          if (_transfers.isNotEmpty) {
-            _transfers[0] = _transfers[0].copyWith(status: TransferStatus.failed);
+          for (final path in filePaths) {
+            final fileName = path.split('/').last.split('\\').last;
+            for (int i = 0; i < _transfers.length; i++) {
+              if (_transfers[i].fileName == fileName && _transfers[i].isOutgoing) {
+                _transfers[i] = _transfers[i].copyWith(status: TransferStatus.failed);
+                break;
+              }
+            }
           }
         });
         ScaffoldMessenger.of(context).showSnackBar(
