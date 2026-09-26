@@ -98,18 +98,19 @@ class WebRtcTransport implements TransportInterface {
     final offerData = data['offer'] as Map<String, dynamic>;
     
     // Convert to TransferRequest
-    final reqDataStr = offerData['requestJson'];
-    if (reqDataStr == null) return;
-    
-    final reqData = jsonDecode(reqDataStr) as Map<String, dynamic>;
-    
-    // We MUST use senderUid (the signaling ID) instead of the one in JSON (which is TransportManager's ID).
-    // Otherwise, the receiver won't be able to send the Answer back to the correct signaling target.
-    final request = TransferRequest(
-      senderName: reqData['sender_name'].toString(),
-      senderId: senderUid, 
-      files: (reqData['files'] as List).map((f) => FileMetadata.fromJson(f)).toList(),
-    );
+    try {
+      final reqDataStr = offerData['requestJson'];
+      if (reqDataStr == null) return;
+      
+      final requestFromJSON = TransferRequest.fromJsonString(reqDataStr);
+      
+      // We MUST use senderUid (the signaling ID) instead of the one in JSON (which is TransportManager's ID).
+      // Otherwise, the receiver won't be able to send the Answer back to the correct signaling target.
+      final request = TransferRequest(
+        senderName: requestFromJSON.senderName,
+        senderId: senderUid, 
+        files: requestFromJSON.files,
+      );
 
     _pendingIncomingCalls[senderUid] = {
       'roomId': roomId,
@@ -117,6 +118,9 @@ class WebRtcTransport implements TransportInterface {
     };
 
     _requestController.add(request);
+    } catch (e) {
+      print('[WebRtcTransport] Failed to parse incoming offer: $e');
+    }
   }
 
   void _handleAnswer(String senderUid, Map<String, dynamic> data) async {

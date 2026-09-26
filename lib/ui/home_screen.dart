@@ -59,7 +59,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
     try {
       await _transport.initialize();
-      await _transport.startDiscovery();
+
+      // Listen for incoming transfer requests IMMEDIATELY after init
+      _requestSub = _transport.incomingRequests.listen(_handleIncomingRequest);
 
       // Listen for discovered devices
       _deviceSub = _transport.devices.listen((device) {
@@ -70,8 +72,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       });
 
-      // Listen for incoming transfer requests
-      _requestSub = _transport.incomingRequests.listen(_handleIncomingRequest);
+      await _transport.startDiscovery();
 
       if (mounted) {
         setState(() {
