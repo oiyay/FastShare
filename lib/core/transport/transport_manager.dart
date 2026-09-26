@@ -2,6 +2,9 @@ import 'package:fast_share/core/transport/webrtc_transport.dart';
 import 'dart:async';
 import 'dart:io';
 
+import "package:fast_share/core/models/transfer_message.dart";
+import "package:fast_share/core/services/database_service.dart";
+import "package:fast_share/core/services/transfer_state_manager.dart";
 import 'package:uuid/uuid.dart';
 
 import 'package:fast_share/core/models/device_info.dart';
@@ -48,7 +51,7 @@ class TransportManager {
     final os = _getCurrentOS();
 
     _selfInfo = DeviceInfo(
-      id: const Uuid().v4(),
+      id: SettingsService().deviceId,
       name: deviceName,
       os: os,
       ip: localIp,
@@ -180,19 +183,43 @@ class TransportManager {
     // Send each file
     for (int i = 0; i < filePaths.length; i++) {
       final fileName = files[i].name;
+      final fileId = files[i].id;
+      final fileSize = files[i].size;
+      
+      final dbMsg = TransferMessage(
+        id: fileId,
+        senderId: _selfInfo!.id,
+        targetId: target.id,
+        remoteName: target.name,
+        fileName: fileName,
+        fileSize: fileSize,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        isSentByMe: true,
+        status: 'transferring',
+      );
+      await DatabaseService().saveMessage(dbMsg);
+
       final fileProgress = (double p) {
-        // Calculate overall progress across all files
         final overallProgress = (i + p) / filePaths.length;
         onProgress?.call(fileName, p, overallProgress);
+        TransferStateManager().updateProgress(fileId, p, 'transferring');
       };
 
-      await transport.sendFile(
-        target,
-        response.token!,
-        files[i].id,
-        filePaths[i],
-        onProgress: fileProgress,
-      );
+      try {
+        await transport.sendFile(
+          target,
+          response.token!,
+          fileId,
+          filePaths[i],
+          onProgress: fileProgress,
+        );
+        TransferStateManager().updateProgress(fileId, 1.0, 'completed');
+        await DatabaseService().updateMessageStatus(fileId, 'completed');
+      } catch (e) {
+        TransferStateManager().updateProgress(fileId, 0.0, 'failed');
+        await DatabaseService().updateMessageStatus(fileId, 'failed');
+        rethrow;
+      }
     }
 
     print('[TransportManager] All files sent successfully!');
@@ -204,12 +231,38 @@ class TransportManager {
     String savePath, {
     void Function(String fileName, double progress)? onProgress,
   }) async {
-    // Try all transports safely — only the one with the pending request will act
-    try { await _tcpTransport.acceptTransfer(request, savePath, onProgress: onProgress); } catch (_) {}
-    try { await _httpTransport.acceptTransfer(request, savePath, onProgress: onProgress); } catch (_) {}
-    try { await _webrtcTransport.acceptTransfer(request, savePath, onProgress: onProgress); } catch (_) {}
+    for (final file in request.files) {
+      final dbMsg = TransferMessage(
+        id: file.id,
+        senderId: request.senderId,
+        remoteName: request.senderName,
+        targetId: _selfInfo!.id,
+        fileName: file.name,
+        fileSize: file.size,
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        isSentByMe: false,
+        status: 'transferring',
+      );
+      await DatabaseService().saveMessage(dbMsg);
+    }
+
+    final wrappedProgress = (String fileName, double progress) {
+      onProgress?.call(fileName, progress);
+      final fileId = request.files.firstWhere((f) => f.name == fileName, orElse: () => FileMetadata(id: '', name: '', size: 0)).id;
+      if (fileId.isNotEmpty) {
+        TransferStateManager().updateProgress(fileId, progress, progress >= 1.0 ? 'completed' : 'transferring');
+        if (progress >= 1.0) {
+          DatabaseService().updateMessageStatus(fileId, 'completed');
+        }
+      }
+    };
+
+    // Try all transports safely
+    try { await _tcpTransport.acceptTransfer(request, savePath, onProgress: wrappedProgress); } catch (_) {}
+    try { await _httpTransport.acceptTransfer(request, savePath, onProgress: wrappedProgress); } catch (_) {}
+    try { await _webrtcTransport.acceptTransfer(request, savePath, onProgress: wrappedProgress); } catch (_) {}
     if (NearbyTransport.isSupported) {
-      try { await _nearbyTransport.acceptTransfer(request, savePath, onProgress: onProgress); } catch (_) {}
+      try { await _nearbyTransport.acceptTransfer(request, savePath, onProgress: wrappedProgress); } catch (_) {}
     }
   }
 

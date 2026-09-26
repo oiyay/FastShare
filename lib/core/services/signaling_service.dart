@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import "package:crypto/crypto.dart";
+import "package:fast_share/core/services/settings_service.dart";
 import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -11,7 +12,7 @@ class SignalingService {
   factory SignalingService() => _instance;
   SignalingService._internal();
 
-  final String _uid = const Uuid().v4();
+  final String _uid = SettingsService().deviceId;
   String _username = '';
   String _os = '';
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import "package:fast_share/core/services/database_service.dart";
 import 'package:permission_handler/permission_handler.dart';
 
 import 'package:fast_share/core/services/settings_service.dart';
@@ -25,6 +26,7 @@ void main() async {
   }
 
   await SettingsService().init();
+  await DatabaseService().init();
 
   // Request storage permissions on Android before app starts
   if (Platform.isAndroid) {

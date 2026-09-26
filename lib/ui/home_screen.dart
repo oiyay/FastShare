@@ -1,557 +1,206 @@
 import 'dart:async';
-import 'dart:io';
-
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
-
 import 'package:fast_share/core/models/device_info.dart';
-import 'package:fast_share/core/models/transfer_request.dart';
-import 'package:fast_share/core/models/exceptions.dart';
+import 'package:fast_share/core/models/transfer_message.dart';
+import 'package:fast_share/core/services/database_service.dart';
 import 'package:fast_share/core/services/settings_service.dart';
+import 'package:fast_share/core/services/signaling_service.dart';
 import 'package:fast_share/core/transport/transport_manager.dart';
+import 'package:fast_share/ui/chat_screen.dart';
 import 'package:fast_share/ui/settings_screen.dart';
-import 'package:fast_share/ui/files_screen.dart';
-import 'package:fast_share/ui/global_share_screen.dart';
-import 'package:fast_share/ui/widgets/device_tile.dart';
-import 'package:fast_share/ui/widgets/transfer_tile.dart';
+import 'package:intl/intl.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({Key? key}) : super(key: key);
 
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  _HomeScreenState createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
   final TransportManager _transport = TransportManager();
-  final SettingsService _settings = SettingsService();
+  final SignalingService _signaling = SignalingService();
 
-  // State
-  final Map<String, DeviceInfo> _devices = {};
-  
-  List<DeviceInfo> get _uniqueDevices {
-    final Map<String, DeviceInfo> byName = {};
-    for (final d in _devices.values) {
-      if (!byName.containsKey(d.name) || d.ip != null) {
-        byName[d.name] = d;
-      }
-    }
-    return byName.values.toList();
-  }
-
-  final List<TransferInfo> _transfers = [];
-  DeviceInfo? _selectedDevice;
-  bool _isInitialized = false;
-  bool _isLoading = false;
-
-  // Subscriptions
-  StreamSubscription? _deviceSub;
-  StreamSubscription? _requestSub;
+  final Map<String, DeviceInfo> _onlineDevices = {};
 
   @override
   void initState() {
     super.initState();
-    _initTransport();
+    _startDiscovery();
   }
 
-  Future<void> _initTransport() async {
-    setState(() => _isLoading = true);
+  void _startDiscovery() async {
+    await _transport.initialize();
+    await _transport.startDiscovery();
+    final selfInfo = _transport.selfInfo;
+    if (selfInfo != null) {
+      await _signaling.initialize(selfInfo.name, selfInfo.os);
+    }
 
-    try {
-      await _transport.initialize();
+    _transport.devices.listen((d) {
+      if (mounted) setState(() => _onlineDevices[d.id] = d);
+    });
 
-      // Listen for incoming transfer requests IMMEDIATELY after init
-      _requestSub = _transport.incomingRequests.listen(_handleIncomingRequest);
-
-      // Listen for discovered devices
-      _deviceSub = _transport.devices.listen((device) {
-        if (mounted) {
-          setState(() {
-            _devices[device.id] = device;
-          });
-        }
-      });
-
-      await _transport.startDiscovery();
-
+    _signaling.onlineUsers.listen((devices) {
       if (mounted) {
         setState(() {
-          _isInitialized = true;
-          _isLoading = false;
+          for (final d in devices) {
+            d.protocol = 'webrtc'; // Mark as global
+            _onlineDevices[d.id] = d;
+          }
         });
       }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to initialize: $e')),
-        );
-      }
-    }
+    });
   }
 
-  void _handleIncomingRequest(TransferRequest request) {
-    if (!mounted) return;
+  void _openChat(DeviceInfo device) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(device: device)));
+  }
 
-    // Auto-accept if enabled
-    if (_settings.autoAccept) {
-      _acceptTransfer(request);
-      return;
-    }
-
-    // Show accept/reject dialog
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Incoming Transfer'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('From: ${request.senderName}'),
-            const SizedBox(height: 8),
-            Text('${request.files.length} file(s):'),
-            ...request.files.map((f) => Padding(
-              padding: const EdgeInsets.only(left: 16, top: 4),
-              child: Text('• ${f.name} (${f.sizeFormatted})'),
-            )),
-          ],
+  Widget _buildActiveNow(bool isDark, Color primaryColor) {
+    if (_onlineDevices.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Text('Active Now', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
         ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              _transport.rejectTransfer(request);
+        SizedBox(
+          height: 100,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: _onlineDevices.length,
+            itemBuilder: (context, index) {
+              final device = _onlineDevices.values.elementAt(index);
+              final isGlobal = device.protocol == 'webrtc';
+              return GestureDetector(
+                onTap: () => _openChat(device),
+                child: Container(
+                  width: 72,
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Column(
+                    children: [
+                      Stack(
+                        children: [
+                          CircleAvatar(
+                            radius: 28,
+                            backgroundColor: isGlobal ? primaryColor.withOpacity(0.2) : Colors.green.withOpacity(0.2),
+                            child: Icon(Icons.person, color: isGlobal ? primaryColor : Colors.green, size: 28),
+                          ),
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: CircleAvatar(
+                              radius: 10,
+                              backgroundColor: isDark ? Colors.black : Colors.white,
+                              child: CircleAvatar(
+                                radius: 8,
+                                backgroundColor: isGlobal ? primaryColor : Colors.green,
+                                child: Icon(isGlobal ? Icons.public : Icons.wifi, size: 10, color: Colors.white),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        device.name,
+                        style: const TextStyle(fontSize: 12),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              );
             },
-            child: const Text('Reject'),
           ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.pop(ctx);
-              await _acceptTransfer(request);
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRecentChats(bool isDark, Color primaryColor) {
+    return Expanded(
+      child: StreamBuilder<List<TransferMessage>>(
+        stream: DatabaseService().recentChatsStream,
+        builder: (context, snapshot) {
+          if (!snapshot.hasData || snapshot.data!.isEmpty) {
+            return const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.chat_bubble_outline, size: 64, color: Colors.grey),
+                  SizedBox(height: 16),
+                  Text('No recent transfers', style: TextStyle(color: Colors.grey, fontSize: 16)),
+                  SizedBox(height: 8),
+                  Text('Tap an active device above to start sharing.', style: TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+            );
+          }
+
+          final chats = snapshot.data!;
+          return ListView.builder(
+            itemCount: chats.length,
+            itemBuilder: (context, index) {
+              final msg = chats[index];
+              final remoteId = msg.isSentByMe ? msg.targetId : msg.senderId;
+              
+              // We need the remote device name. It might be online or offline.
+              // If offline, we just show the ID for now. (Ideally we save contacts in DB).
+              final remoteDevice = _onlineDevices[remoteId] ?? DeviceInfo(id: remoteId, name: 'Unknown ($remoteId)', os: 'Unknown', ip: '', port: 0);
+
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: primaryColor.withOpacity(0.1),
+                  child: Icon(Icons.person, color: primaryColor),
+                ),
+                title: Text(msg.remoteName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                subtitle: Text(
+                  '${msg.isSentByMe ? "You sent" : "Received"}: ${msg.fileName}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: Text(
+                  DateFormat('HH:mm').format(DateTime.fromMillisecondsSinceEpoch(msg.timestamp)),
+                  style: const TextStyle(color: Colors.grey, fontSize: 12),
+                ),
+                onTap: () => _openChat(remoteDevice),
+              );
             },
-            child: const Text('Accept'),
-          ),
-        ],
+          );
+        },
       ),
     );
-  }
-
-  Future<void> _acceptTransfer(TransferRequest request) async {
-    try {
-      // Get save directory from settings
-      final savePath = await _settings.getEffectiveSavePath();
-      await Directory(savePath).create(recursive: true);
-
-      // Add to transfers list FIRST so progress can update them
-      setState(() {
-        for (final file in request.files) {
-          _transfers.insert(0, TransferInfo(
-            fileName: file.name,
-            fileSize: file.size,
-            status: TransferStatus.receiving,
-            isOutgoing: false,
-          ));
-        }
-      });
-
-      await _transport.acceptTransfer(request, savePath, onProgress: (fileName, progress) {
-        if (!mounted) return;
-        setState(() {
-          for (int i = 0; i < _transfers.length; i++) {
-            if (_transfers[i].fileName == fileName && !_transfers[i].isOutgoing) {
-              _transfers[i] = _transfers[i].copyWith(
-                progress: progress,
-                status: progress >= 1.0 ? TransferStatus.completed : TransferStatus.receiving,
-              );
-              break;
-            }
-          }
-        });
-      });
-
-      if (mounted && _settings.showNotifications) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Received files from ${request.senderName} ✅'),
-            action: SnackBarAction(
-              label: 'Open Folder',
-              onPressed: () {
-                // TODO: Open save directory in file manager
-              },
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
-      }
-    }
-  }
-
-  /// Show send mode selection when FAB is pressed
-  Future<void> _showSendOptions() async {
-    // Pick files first
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: true,
-      type: FileType.any,
-    );
-
-    if (result == null || result.files.isEmpty) return;
-
-    final filePaths = result.files
-        .where((f) => f.path != null)
-        .map((f) => f.path!)
-        .toList();
-
-    if (filePaths.isEmpty) return;
-    
-    _sendFilePaths(filePaths);
-  }
-
-  /// Send files directly via FastShare protocol
-  Future<void> _sendFilePaths(List<String> filePaths, [String? pin]) async {
-    if (_selectedDevice == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Select a device first!')),
-      );
-      return;
-    }
-
-    // Add to transfers list ONLY if we don't already have it (retries with PIN)
-    if (pin == null) {
-      setState(() {
-        for (final path in filePaths) {
-          final name = path.split('/').last.split('\\').last;
-          final file = File(path);
-          _transfers.insert(0, TransferInfo(
-            fileName: name,
-            fileSize: file.existsSync() ? file.lengthSync() : 0,
-            status: TransferStatus.sending,
-            isOutgoing: true,
-          ));
-        }
-      });
-    }
-
-    // Send files
-    try {
-      await _transport.sendFiles(
-        _selectedDevice!,
-        filePaths,
-        pin: pin,
-        onProgress: (fileName, fileProgress, overallProgress) {
-          if (mounted) {
-            setState(() {
-              for (int i = 0; i < _transfers.length; i++) {
-                if (_transfers[i].fileName == fileName && _transfers[i].isOutgoing) {
-                  _transfers[i] = _transfers[i].copyWith(progress: fileProgress);
-                  break;
-                }
-              }
-            });
-          }
-        },
-      );
-
-      // Mark as completed
-      if (mounted) {
-        setState(() {
-          for (final path in filePaths) {
-            final fileName = path.split('/').last.split('\\').last;
-            for (int i = 0; i < _transfers.length; i++) {
-              if (_transfers[i].fileName == fileName && _transfers[i].isOutgoing) {
-                _transfers[i] = _transfers[i].copyWith(
-                  status: TransferStatus.completed,
-                  progress: 1.0,
-                );
-                break;
-              }
-            }
-          }
-        });
-        if (_settings.showNotifications) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Files sent successfully! ✅')),
-          );
-        }
-      }
-    } on PinRequiredException catch (_) {
-      // Show PIN dialog and retry
-      if (mounted) {
-        final pinController = TextEditingController();
-        final enteredPin = await showDialog<String>(
-          context: context,
-          barrierDismissible: false,
-          builder: (ctx) => AlertDialog(
-            title: const Text('PIN Required'),
-            content: TextField(
-              controller: pinController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Enter PIN for LocalSend device',
-                border: OutlineInputBorder(),
-              ),
-              autofocus: true,
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, pinController.text),
-                child: const Text('Submit'),
-              ),
-            ],
-          ),
-        );
-        
-        if (enteredPin != null && enteredPin.isNotEmpty) {
-          await _sendFilePaths(filePaths, enteredPin); // Retry with PIN
-        } else {
-          // User canceled PIN input
-          if (mounted) {
-            setState(() {
-              for (final path in filePaths) {
-                final fileName = path.split('/').last.split('\\').last;
-                for (int i = 0; i < _transfers.length; i++) {
-                  if (_transfers[i].fileName == fileName && _transfers[i].isOutgoing) {
-                    _transfers[i] = _transfers[i].copyWith(status: TransferStatus.failed);
-                    break;
-                  }
-                }
-              }
-            });
-          }
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          for (final path in filePaths) {
-            final fileName = path.split('/').last.split('\\').last;
-            for (int i = 0; i < _transfers.length; i++) {
-              if (_transfers[i].fileName == fileName && _transfers[i].isOutgoing) {
-                _transfers[i] = _transfers[i].copyWith(status: TransferStatus.failed);
-                break;
-              }
-            }
-          }
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Send failed: $e')),
-        );
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _deviceSub?.cancel();
-    _requestSub?.cancel();
-    _transport.dispose();
-    super.dispose();
-  }
-
-  String _getCurrentOS() {
-    if (Platform.isAndroid) return 'Android';
-    if (Platform.isWindows) return 'Windows';
-    if (Platform.isLinux) return 'Linux';
-    if (Platform.isMacOS) return 'macOS';
-    return 'Unknown';
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryColor = const Color(0xFF3A76F0);
+
     return Scaffold(
+      backgroundColor: isDark ? Colors.black : Colors.white,
       appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('FastShare', style: TextStyle(fontWeight: FontWeight.bold)),
-            Text(
-              '${_transport.selfInfo?.name ?? _settings.deviceName} • ${_getCurrentOS()}',
-              style: TextStyle(fontSize: 12, color: Colors.grey[400]),
-            ),
-          ],
-        ),
+        backgroundColor: isDark ? const Color(0xFF181818) : const Color(0xFFF5F5F5),
+        elevation: 0,
+        title: const Text('Chats', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
-          // Global P2P button
-          IconButton(
-            icon: const Icon(Icons.public),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const GlobalShareScreen()),
-              );
-            },
-            tooltip: 'Global P2P Share',
-          ),
-          // Files button
-          IconButton(
-            icon: const Icon(Icons.folder),
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const FilesScreen()),
-              );
-            },
-            tooltip: 'Received Files',
-          ),
-          // Refresh button
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _isInitialized ? () async {
-              setState(() {
-                _devices.clear();
-                _isLoading = true; // Show loading spinner
-              });
-              
-              // Trigger a fresh HTTP sweep and UDP search
-              _transport.refreshDiscovery();
-              
-              if (mounted) {
-                setState(() => _isLoading = false);
-              }
-            } : null,
-            tooltip: 'Refresh devices',
-          ),
-          // Settings button
           IconButton(
             icon: const Icon(Icons.settings),
-            onPressed: () async {
-              await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const SettingsScreen()),
-              );
-              // Refresh UI after settings change
-              if (mounted) setState(() {});
-            },
-            tooltip: 'Settings',
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
           ),
         ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _buildBody(),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _isInitialized ? _showSendOptions : null,
-        icon: const Icon(Icons.send),
-        label: const Text('Send File'),
-      ),
-    );
-  }
-
-  Widget _buildBody() {
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      body: Column(
         children: [
-          // Nearby Devices section
-          Row(
-            children: [
-              const Icon(Icons.devices, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                'Nearby Devices (${_uniqueDevices.length})',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const Spacer(),
-              if (_uniqueDevices.isEmpty && _isInitialized)
-                Text(
-                  'Searching...',
-                  style: TextStyle(color: Colors.grey[500], fontSize: 12),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-
-          // Device list
-          Expanded(
-            flex: 2,
-            child: _uniqueDevices.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.wifi_find, size: 48, color: Colors.grey[700]),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Looking for devices on your network...',
-                          style: TextStyle(color: Colors.grey[500]),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'Also detects LocalSend devices!',
-                          style: TextStyle(color: Colors.grey[600], fontSize: 12),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    itemCount: _uniqueDevices.length,
-                    itemBuilder: (context, index) {
-                      final device = _uniqueDevices[index];
-                      return DeviceTile(
-                        device: device,
-                        isSelected: _selectedDevice?.id == device.id,
-                        onTap: () {
-                          setState(() {
-                            _selectedDevice = device;
-                          });
-                        },
-                      );
-                    },
-                  ),
-          ),
-
-          const Divider(),
-
-          // Transfers section
-          Row(
-            children: [
-              const Icon(Icons.swap_vert, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                'Transfers (${_transfers.length})',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              const Spacer(),
-              if (_transfers.isNotEmpty)
-                TextButton(
-                  onPressed: () {
-                    setState(() => _transfers.clear());
-                  },
-                  child: const Text('Clear', style: TextStyle(fontSize: 12)),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-
-          // Transfer list
-          Expanded(
-            flex: 3,
-            child: _transfers.isEmpty
-                ? Center(
-                    child: Text(
-                      'No transfers yet',
-                      style: TextStyle(color: Colors.grey[600]),
-                    ),
-                  )
-                : ListView.builder(
-                    itemCount: _transfers.length,
-                    itemBuilder: (context, index) {
-                      return TransferTile(transfer: _transfers[index]);
-                    },
-                  ),
-          ),
+          _buildActiveNow(isDark, primaryColor),
+          if (_onlineDevices.isNotEmpty) const Divider(height: 1),
+          _buildRecentChats(isDark, primaryColor),
         ],
       ),
     );

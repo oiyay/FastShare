@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import "package:uuid/uuid.dart";
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -25,7 +26,16 @@ class SettingsService {
 
   void _notify() => _changeController.add(null);
 
-  // ── Device Name & Username ───────────────
+  // ── Device ID, Name & Username ───────────
+
+  String get deviceId {
+    var id = _prefs?.getString('device_id');
+    if (id == null || id.isEmpty) {
+      id = const Uuid().v4();
+      _prefs?.setString('device_id', id);
+    }
+    return id;
+  }
 
   String get deviceName {
     return _prefs?.getString('device_name') ?? Platform.localHostname;
