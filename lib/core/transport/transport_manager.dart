@@ -96,11 +96,15 @@ class TransportManager {
     });
 
     if (NearbyTransport.isSupported) {
-      await _nearbyTransport.startAdvertising(_selfInfo!);
-      _nearbyTransport.discoverDevices().listen((device) {
-        _discoveredCache[device.id] = device;
-        _deviceController.add(device);
-      });
+      try {
+        await _nearbyTransport.startAdvertising(_selfInfo!);
+        _nearbyTransport.discoverDevices().listen((device) {
+          _discoveredCache[device.id] = device;
+          _deviceController.add(device);
+        });
+      } catch (e) {
+        print('[TransportManager] NearbyTransport failed to start (likely missing permissions): $e');
+      }
     }
   }
 
