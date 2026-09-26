@@ -35,10 +35,8 @@ class NearbyTransport implements TransportInterface {
       Permission.nearbyWifiDevices,
     ].request();
 
-    // Nearby Connections specifically requires Global Location Services (GPS) to be ON.
-    if (!await Nearby().checkLocationEnabled()) {
-      await Nearby().enableLocationServices();
-    }
+    // Note: Global Location Services (GPS) must be ON for Nearby Connections to work.
+    // If it's off, startDiscovery will throw a PlatformException, which is caught safely in TransportManager.
   }
 
   @override
