@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import "turn_credential.dart";
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -38,22 +39,26 @@ class WebRtcTransport implements TransportInterface {
   final Map<String, Map<String, dynamic>> _pendingIncomingCalls = {};
   final Map<String, List<Map<String, dynamic>>> _iceCandidateQueue = {};
 
-  final Map<String, dynamic> _iceServers = {
-    'iceServers': [
-      {'urls': 'stun:stun.l.google.com:19302'},
-      {'urls': 'stun:stun1.l.google.com:19302'},
-      {
-        'urls': 'turn:openrelay.metered.ca:80',
-        'username': 'openrelayproject',
-        'credential': 'openrelayproject'
-      },
-      {
-        'urls': 'turn:openrelay.metered.ca:443',
-        'username': 'openrelayproject',
-        'credential': 'openrelayproject'
-      }
-    ]
-  };
+  Map<String, dynamic> get _iceServers {
+    final creds = generateTurnCredentials();
+    return {
+      'iceServers': [
+        {'urls': 'stun:stun.l.google.com:19302'},
+        {'urls': 'stun:stun1.l.google.com:19302'},
+        {
+          'urls': 'turn:101.32.142.137:3478',
+          'username': creds['username'],
+          'credential': creds['credential']
+        },
+        {
+          // Fallback to openrelay just in case the VPS goes down
+          'urls': 'turn:openrelay.metered.ca:80',
+          'username': 'openrelayproject',
+          'credential': 'openrelayproject'
+        }
+      ]
+    };
+  }
 
   @override
   Future<void> initialize() async {
