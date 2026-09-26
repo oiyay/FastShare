@@ -5,6 +5,11 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 import 'package:shelf/shelf.dart' as shelf;
+
+import 'package:cryptography/cryptography.dart' hide Hmac;
+import 'package:fast_share/core/models/transfer_message.dart';
+import 'package:fast_share/core/services/database_service.dart';
+
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:uuid/uuid.dart';
 
@@ -365,6 +370,9 @@ class HttpTransport implements TransportInterface {
     }
     if (request.method == 'POST' && path == 'api/receive') {
       return _handleReceiveFile(request);
+    }
+    if (request.method == 'POST' && path == 'api/chat') {
+      return _handleIncomingChat(request);
     }
     if (request.method == 'GET' && path == 'api/ping') {
       return shelf.Response.ok(jsonEncode({'status': 'ok', 'app': 'FastShare'}));

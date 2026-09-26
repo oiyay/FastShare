@@ -2,6 +2,8 @@ import 'package:fast_share/core/transport/webrtc_transport.dart';
 import 'dart:async';
 import 'dart:io';
 
+import "package:cryptography/cryptography.dart" hide Hmac;
+import "package:fast_share/core/services/signaling_service.dart";
 import "package:fast_share/core/models/transfer_message.dart";
 import "package:fast_share/core/services/database_service.dart";
 import "package:fast_share/core/services/transfer_state_manager.dart";
@@ -143,6 +145,67 @@ class TransportManager {
 
   /// Send file(s) to a target device.
   /// Automatically selects the best transport.
+
+  /// Send a text chat message to a target device (P2P Local or Global).
+  Future<void> sendChatText(DeviceInfo target, String text) async {
+    if (_selfInfo == null) throw StateError('TransportManager not initialized');
+    
+    // Create DB entry first
+    final payloadId = const Uuid().v4();
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    
+    final dbMsg = TransferMessage(
+      id: payloadId,
+      senderId: _selfInfo!.id,
+      targetId: target.id,
+      remoteName: target.name,
+      messageType: 'text',
+      textContent: text,
+      timestamp: timestamp,
+      isSentByMe: true,
+      status: 'completed',
+    );
+    await DatabaseService().saveMessage(dbMsg);
+
+    // Build payload and sign it
+    final payload = {'id': payloadId, 'text': text, 'ts': timestamp};
+    final payloadStr = jsonEncode(payload);
+
+    final keyPair = SettingsService().keyPair;
+    final sig = await Ed25519().sign(utf8.encode(payloadStr), keyPair: keyPair);
+    final sigBase64 = base64Encode(sig.bytes);
+
+    if (target.protocol == 'webrtc') {
+      // Send via WebRTC Signaling Server
+      await SignalingService().sendChatMessage(target.id, text);
+    } else {
+      // Send via Local HTTP POST
+      final url = Uri.parse('http://${target.ip}:${target.port}/api/chat');
+      final body = jsonEncode({
+        'payload': payloadStr,
+        'sig': sigBase64,
+        'senderUid': _selfInfo!.id,
+      });
+      
+      try {
+        final client = HttpClient();
+        client.connectionTimeout = const Duration(seconds: 3);
+        final request = await client.postUrl(url);
+        request.headers.contentType = ContentType.json;
+        request.write(body);
+        final response = await request.close();
+        if (response.statusCode != 200) {
+          throw Exception('Target returned ${response.statusCode}');
+        }
+      } catch (e) {
+        // If HTTP fails, mark as failed in DB
+        await DatabaseService().updateMessageStatus(payloadId, 'failed');
+        print('[TransportManager] Local chat delivery failed: $e');
+        rethrow;
+      }
+    }
+  }
+
   Future<void> sendFiles(
     DeviceInfo target,
     List<String> filePaths, {

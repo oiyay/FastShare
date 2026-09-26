@@ -21,12 +21,58 @@ class _HomeScreenState extends State<HomeScreen> {
   final TransportManager _transport = TransportManager();
   final SignalingService _signaling = SignalingService();
 
-  final Map<String, DeviceInfo> _onlineDevices = {};
+  final Map<String, DeviceInfo> _localDevices = {};
+  final Map<String, DeviceInfo> _globalDevices = {};
+
+  // Computed unified list
+  List<DeviceInfo> get _unifiedDevices {
+    final Map<String, DeviceInfo> merged = {};
+    
+    // Add global first
+    for (final d in _globalDevices.values) {
+      merged[d.id] = d;
+    }
+    
+    // Add local (overwrites global with local protocol for priority speed!)
+    for (final d in _localDevices.values) {
+      merged[d.id] = d;
+    }
+    
+    return merged.values.toList();
+  }
 
   @override
   void initState() {
     super.initState();
     _startDiscovery();
+  }
+
+  void _startDiscovery() async {
+    await _transport.initialize();
+    await _transport.startDiscovery();
+    final selfInfo = _transport.selfInfo;
+    if (selfInfo != null) {
+      await _signaling.initialize(selfInfo.name, selfInfo.os);
+    }
+
+    _transport.devices.listen((d) {
+      if (mounted) {
+        setState(() {
+          _localDevices[d.id] = d;
+        });
+      }
+    });
+
+    _signaling.onlineUsers.listen((devices) {
+      if (mounted) {
+        setState(() {
+          _globalDevices.clear();
+          for (final d in devices) {
+            _globalDevices[d.id] = d.copyWith(protocol: 'webrtc');
+          }
+        });
+      }
+    });
   }
 
   void _startDiscovery() async {
@@ -57,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildActiveNow(bool isDark, Color primaryColor) {
-    if (_onlineDevices.isEmpty) return const SizedBox.shrink();
+    if (_unifiedDevices.isEmpty) return const SizedBox.shrink();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -70,9 +116,9 @@ class _HomeScreenState extends State<HomeScreen> {
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: _onlineDevices.length,
+            itemCount: _unifiedDevices.length,
             itemBuilder: (context, index) {
-              final device = _onlineDevices.values.elementAt(index);
+              final device = _unifiedDevices[index];
               final isGlobal = device.protocol == 'webrtc';
               return GestureDetector(
                 onTap: () => _openChat(device),
@@ -151,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> {
               
               // We need the remote device name. It might be online or offline.
               // If offline, we just show the ID for now. (Ideally we save contacts in DB).
-              final remoteDevice = _onlineDevices[remoteId] ?? DeviceInfo(id: remoteId, name: 'Unknown ($remoteId)', os: 'Unknown', ip: '', port: 0);
+              final remoteDevice = _unifiedDevices.firstWhere((d) => d.id == remoteId, orElse: () => DeviceInfo(id: remoteId, name: 'Unknown ($remoteId)', os: 'Unknown', ip: '', port: 0);
 
               return ListTile(
                 leading: CircleAvatar(
@@ -192,7 +238,7 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
-              _onlineDevices.clear();
+              _localDevices.clear(); _globalDevices.clear();
               setState(() {});
               _transport.refreshDiscovery();
             },
@@ -206,7 +252,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: Column(
         children: [
           _buildActiveNow(isDark, primaryColor),
-          if (_onlineDevices.isNotEmpty) const Divider(height: 1),
+          if (_unifiedDevices.isNotEmpty) const Divider(height: 1),
           _buildRecentChats(isDark, primaryColor),
         ],
       ),

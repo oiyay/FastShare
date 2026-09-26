@@ -37,21 +37,8 @@ class _ChatScreenState extends State<ChatScreen> {
     if (text.isEmpty) return;
     _textController.clear();
     
-    // We send via SignalingService for global P2P secure chat
     try {
-      final msg = TransferMessage(
-        id: const Uuid().v4(),
-        senderId: SettingsService().deviceId,
-        targetId: widget.device.id,
-        remoteName: widget.device.name,
-        messageType: 'text',
-        textContent: text,
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-        isSentByMe: true,
-        status: 'completed',
-      );
-      await DatabaseService().saveMessage(msg);
-      await SignalingService().sendChatMessage(widget.device.id, text);
+      await _transport.sendChatText(widget.device, text);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
     }
