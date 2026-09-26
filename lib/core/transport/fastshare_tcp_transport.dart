@@ -331,7 +331,7 @@ class FastShareTcpTransport implements TransportInterface {
     void Function(String fileName, double progress)? onProgress,
   }) async {
     final socket = _incomingSockets[request.senderId];
-    if (socket == null) throw StateError('No active TCP connection');
+    if (socket == null) return; // Not handled by this transport
 
     if (onProgress != null) {
       _progressCallbacks[request.senderId] = onProgress;

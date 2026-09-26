@@ -204,22 +204,22 @@ class TransportManager {
     String savePath, {
     void Function(String fileName, double progress)? onProgress,
   }) async {
-    // Try all transports — only the one with the pending request will act
-    await _tcpTransport.acceptTransfer(request, savePath, onProgress: onProgress);
-    await _httpTransport.acceptTransfer(request, savePath, onProgress: onProgress);
-    await _webrtcTransport.acceptTransfer(request, savePath, onProgress: onProgress);
+    // Try all transports safely — only the one with the pending request will act
+    try { await _tcpTransport.acceptTransfer(request, savePath, onProgress: onProgress); } catch (_) {}
+    try { await _httpTransport.acceptTransfer(request, savePath, onProgress: onProgress); } catch (_) {}
+    try { await _webrtcTransport.acceptTransfer(request, savePath, onProgress: onProgress); } catch (_) {}
     if (NearbyTransport.isSupported) {
-      await _nearbyTransport.acceptTransfer(request, savePath, onProgress: onProgress);
+      try { await _nearbyTransport.acceptTransfer(request, savePath, onProgress: onProgress); } catch (_) {}
     }
   }
 
   /// Reject an incoming transfer request.
   Future<void> rejectTransfer(TransferRequest request) async {
-    await _tcpTransport.rejectTransfer(request);
-    await _httpTransport.rejectTransfer(request);
-    await _webrtcTransport.rejectTransfer(request);
+    try { await _tcpTransport.rejectTransfer(request); } catch (_) {}
+    try { await _httpTransport.rejectTransfer(request); } catch (_) {}
+    try { await _webrtcTransport.rejectTransfer(request); } catch (_) {}
     if (NearbyTransport.isSupported) {
-      await _nearbyTransport.rejectTransfer(request);
+      try { await _nearbyTransport.rejectTransfer(request); } catch (_) {}
     }
   }
 
