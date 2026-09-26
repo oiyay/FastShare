@@ -45,8 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() {
           for (final d in devices) {
-            d.protocol = 'webrtc'; // Mark as global
-            _onlineDevices[d.id] = d;
+            _onlineDevices[d.id] = d.copyWith(protocol: 'webrtc');
           }
         });
       }
