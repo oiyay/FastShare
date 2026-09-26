@@ -4,7 +4,7 @@ import "package:crypto/crypto.dart";
 import "package:fast_share/core/services/settings_service.dart";
 import "package:fast_share/core/models/transfer_message.dart";
 import "package:fast_share/core/services/database_service.dart";
-import "package:cryptography/cryptography.dart";
+import "package:cryptography/cryptography.dart" hide Hmac;
 import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
