@@ -107,17 +107,17 @@ class _GlobalShareScreenState extends State<GlobalShareScreen> {
                               return ListTile(
                                 leading: CircleAvatar(
                                   backgroundColor: Colors.blue,
-                                  child: Text(user.username.substring(1, 2).toUpperCase(), style: const TextStyle(color: Colors.white)),
+                                  child: Text(user.name.isNotEmpty ? user.name[0].toUpperCase() : '?', style: const TextStyle(color: Colors.white)),
                                 ),
-                                title: Text(user.username, style: const TextStyle(fontWeight: FontWeight.bold)),
+                                title: Text(user.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                                 subtitle: const Text('Ready to receive files'),
                                 trailing: ElevatedButton(
                                   onPressed: () async {
                                     final result = await file_picker.FilePicker.platform.pickFiles(allowMultiple: true);
                                     if (result != null && result.paths.isNotEmpty) {
                                       final target = DeviceInfo(
-                                        id: user.uid,
-                                        name: user.username,
+                                        id: user.id,
+                                        name: user.name,
                                         os: 'global',
                                         ip: '0.0.0.0', // Not used for WebRTC
                                         port: 0,
@@ -125,7 +125,7 @@ class _GlobalShareScreenState extends State<GlobalShareScreen> {
                                       );
                                       
                                       ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(content: Text('Connecting to ${user.username}...')),
+                                        SnackBar(content: Text('Connecting to ${user.name}...')),
                                       );
                                       
                                       try {

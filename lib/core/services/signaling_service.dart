@@ -1,169 +1,111 @@
 import 'dart:async';
-import 'dart:math';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:convert';
 import 'package:uuid/uuid.dart';
-import 'package:fast_share/core/services/settings_service.dart';
+import 'package:web_socket_channel/web_socket_channel.dart';
 
-class GlobalUser {
-  final String uid;
-  final String username;
-  final DateTime lastActive;
-
-  GlobalUser({required this.uid, required this.username, required this.lastActive});
-}
+import 'package:fast_share/core/models/device_info.dart';
 
 class SignalingService {
-  static final SignalingService _instance = SignalingService._internal();
-  factory SignalingService() => _instance;
-  SignalingService._internal();
+  final String _uid = const Uuid().v4();
+  String _username = '';
+  String _os = '';
 
-  SupabaseClient? _supabase;
-  RealtimeChannel? _channel;
+  WebSocketChannel? _channel;
 
-  String? _uid;
-  String? get uid => _uid;
-
-  String? _username;
-  String? get username => _username;
-
-  final _usersController = StreamController<List<GlobalUser>>.broadcast();
-  List<GlobalUser> _currentUsers = [];
-  
-  Stream<List<GlobalUser>> get onlineUsers async* {
-    yield _currentUsers;
-    yield* _usersController.stream;
-  }
-
+  final _onlineUsersController = StreamController<List<DeviceInfo>>.broadcast();
   final _incomingMessagesController = StreamController<Map<String, dynamic>>.broadcast();
+  
+  // Expose Streams
+  Stream<List<DeviceInfo>> get onlineUsers => _onlineUsersController.stream;
   Stream<Map<String, dynamic>> get incomingMessages => _incomingMessagesController.stream;
 
-  bool _isInitialized = false;
+  String get uid => _uid;
 
-  Future<void> initialize() async {
-    if (_isInitialized) return;
-    
-    try {
-      _supabase = Supabase.instance.client;
-    } catch (e) {
-      print('[SignalingService] Supabase not initialized. Global P2P disabled.');
-      _usersController.addError('Supabase credentials not found. Please set SUPABASE_URL and SUPABASE_ANON_KEY secrets in GitHub and rebuild.');
-      return;
-    }
-
-    _uid = const Uuid().v4();
-    final settings = SettingsService();
-    _username = settings.username.isNotEmpty ? settings.username : 'Guest';
-
-    // Listen for username changes
-    settings.onSettingsChanged.listen((_) {
-      final newUsername = settings.username.isNotEmpty ? settings.username : 'Guest';
-      if (newUsername != _username && _channel != null) {
-        _username = newUsername;
-        _channel!.track({
-          'uid': _uid,
-          'username': _username,
-          'online_at': DateTime.now().toIso8601String(),
-        });
-      }
-    });
-
-    // Join the global channel for presence and signaling
-    _channel = _supabase!.channel('global_p2p');
-
-    // Handle Presence updates
-    _channel!.onPresenceSync((_) async {
-      final state = _channel!.presenceState();
-      final Map<String, GlobalUser> uniqueUsers = {};
-      bool collisionDetected = false;
-      
-      for (final clientState in state) {
-        for (final presence in clientState.presences) {
-          final payload = presence.payload;
-          
-          final pUid = payload['uid'] as String?;
-          final pUsername = payload['username'] as String?;
-          
-          if (pUid != null && pUsername != null) {
-            if (pUid != _uid) {
-              uniqueUsers[pUid] = GlobalUser(
-                uid: pUid,
-                username: pUsername,
-                lastActive: DateTime.now(),
-              );
-              if (pUsername == _username) {
-                collisionDetected = true;
-              }
-            }
-          }
-        }
-      }
-      
-      _currentUsers = uniqueUsers.values.toList();
-
-      if (collisionDetected) {
-        final suffix = (1000 + Random().nextInt(9000)).toString();
-        _username = '$_username#$suffix';
-        settings.username = _username!;
-        
-        // Retrack our presence with the new unique username
-        if (_channel != null) {
-          await _channel!.track({
-            'uid': _uid,
-            'username': _username,
-            'online_at': DateTime.now().toIso8601String(),
-          });
-        }
-      }
-
-      _usersController.add(_currentUsers);
-    });
-
-    // Handle direct signaling messages
-    _channel!.onBroadcast(
-      event: 'signaling',
-      callback: (payload) {
-        if (payload['target_uid'] == _uid) {
-          _incomingMessagesController.add(payload);
-        }
-      },
-    );
-
-    // Subscribe to channel
-    _channel!.subscribe((status, [error]) async {
-      if (status == RealtimeSubscribeStatus.subscribed) {
-        // Announce our presence
-        await _channel!.track({
-          'uid': _uid,
-          'username': _username,
-          'online_at': DateTime.now().toIso8601String(),
-        });
-      }
-    });
-
-    _isInitialized = true;
+  Future<void> initialize(String username, String os) async {
+    _username = username;
+    _os = os;
+    _connect();
   }
 
-  /// Send a WebRTC signaling message to a target user
+  void _connect() {
+    final wsUrl = Uri.parse('wss://signaling.apcb.net/ws');
+    
+    try {
+      _channel = WebSocketChannel.connect(wsUrl);
+      
+      // Send Join message
+      _channel!.sink.add(jsonEncode({
+        'type': 'join',
+        'uid': _uid,
+        'username': _username,
+        'os': _os,
+      }));
+
+      // Listen for incoming messages
+      _channel!.stream.listen(
+        (message) {
+          final data = jsonDecode(message as String) as Map<String, dynamic>;
+          final type = data['type'] as String?;
+
+          if (type == 'presence') {
+            final usersList = data['users'] as List;
+            final devices = usersList.map((u) {
+              final userMap = u as Map<String, dynamic>;
+              return DeviceInfo(
+                id: userMap['uid'].toString(),
+                name: userMap['username'].toString(),
+                os: userMap['os'].toString(),
+                ip: 'Remote P2P', // Display text
+              );
+            }).toList();
+            
+            // Remove self from the list
+            devices.removeWhere((d) => d.id == _uid);
+            
+            _onlineUsersController.add(devices);
+          } else if (type == 'signal') {
+            // A direct signal message targeted to us
+            // Construct payload compatible with WebRtcTransport parser
+            final payload = {
+              'sender_uid': data['sender_uid'],
+              'type': data['signal_type'],
+              'data': data['data'],
+            };
+            _incomingMessagesController.add(payload);
+          }
+        },
+        onDone: () {
+          print('Signaling WebSocket closed. Reconnecting in 5s...');
+          Future.delayed(const Duration(seconds: 5), _connect);
+        },
+        onError: (e) {
+          print('Signaling WebSocket error: $e');
+        }
+      );
+    } catch (e) {
+      print('Failed to connect to signaling server: $e');
+      Future.delayed(const Duration(seconds: 5), _connect);
+    }
+  }
+
   Future<void> sendSignal({
     required String targetUid,
-    required String type, // 'offer', 'answer', 'ice_candidate', 'end'
+    required String type, // 'offer', 'answer', 'ice_candidate', 'end', 'reject'
     required Map<String, dynamic> data,
   }) async {
     if (_channel == null) return;
     
-    await _channel!.sendBroadcastMessage(
-      event: 'signaling',
-      payload: {
-        'target_uid': targetUid,
-        'sender_uid': _uid,
-        'type': type,
-        'data': data,
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-      },
-    );
+    final payload = {
+      'type': 'signal',
+      'target_uid': targetUid,
+      'sender_uid': _uid,
+      'signal_type': type,
+      'data': data,
+    };
+    
+    _channel!.sink.add(jsonEncode(payload));
   }
 
-  /// We no longer need these explicit methods since it's all handled by sendSignal
   Future<void> sendOffer(String callerUid, String targetUid, String roomId, Map<String, dynamic> offerData) async {
     await sendSignal(targetUid: targetUid, type: 'offer', data: {
       'roomId': roomId,
@@ -178,15 +120,13 @@ class SignalingService {
     });
   }
 
-  Future<void> sendIceCandidate(String callerUid, String targetUid, String roomId, Map<String, dynamic> candidateData) async {
+  Future<void> sendIceCandidate(String callerUid, String targetUid, Map<String, dynamic> candidateData) async {
     await sendSignal(targetUid: targetUid, type: 'ice_candidate', data: {
-      'roomId': roomId,
       'candidate': candidateData,
     });
   }
 
   Future<void> endCall(String targetUid, String roomId) async {
-    // Send end signal
     await sendSignal(targetUid: targetUid, type: 'end', data: {
       'roomId': roomId,
     });
@@ -199,6 +139,8 @@ class SignalingService {
   }
 
   void dispose() {
-    _channel?.unsubscribe();
+    _channel?.sink.close();
+    _onlineUsersController.close();
+    _incomingMessagesController.close();
   }
 }
