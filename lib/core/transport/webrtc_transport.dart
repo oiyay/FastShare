@@ -38,6 +38,7 @@ class WebRtcTransport implements TransportInterface {
 
   final Map<String, Map<String, dynamic>> _pendingIncomingCalls = {};
   final Map<String, List<Map<String, dynamic>>> _iceCandidateQueue = {};
+  final Map<String, Completer<TransferResponse>> _transferCompleters = {};
 
   Map<String, dynamic> get _iceServers {
     final creds = generateTurnCredentials();
@@ -77,9 +78,19 @@ class WebRtcTransport implements TransportInterface {
       _handleAnswer(senderUid, data);
     } else if (type == 'ice_candidate') {
       _handleIceCandidate(senderUid, data);
+    } else if (type == 'reject') {
+      _handleReject(senderUid);
     } else if (type == 'end') {
       _cleanupConnection(senderUid);
     }
+  }
+
+  void _handleReject(String senderUid) {
+    final completer = _transferCompleters.remove(senderUid);
+    if (completer != null && !completer.isCompleted) {
+      completer.complete(TransferResponse(accepted: false));
+    }
+    _cleanupConnection(senderUid);
   }
 
   void _handleOffer(String senderUid, Map<String, dynamic> data) async {
@@ -121,6 +132,12 @@ class WebRtcTransport implements TransportInterface {
           await pc.addCandidate(RTCIceCandidate(c['candidate'], c['sdpMid'], c['sdpMLineIndex']));
         }
         _iceCandidateQueue.remove(senderUid);
+      }
+      
+      final completer = _transferCompleters.remove(senderUid);
+      if (completer != null && !completer.isCompleted) {
+        final roomId = data['roomId'] as String?;
+        completer.complete(TransferResponse(accepted: true, token: roomId));
       }
     }
   }
@@ -200,15 +217,23 @@ class WebRtcTransport implements TransportInterface {
     final offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
 
+    final completer = Completer<TransferResponse>();
+    _transferCompleters[targetUid] = completer;
+
     await _signaling.sendOffer(_signaling.uid!, targetUid, roomId, {
       'type': offer.type,
       'sdp': offer.sdp,
       'requestJson': jsonEncode(request.toJson()),
     });
 
-    // We don't have a direct HTTP-like response from signaling.
-    // The receiver will just connect via WebRTC if they accept.
-    return TransferResponse(accepted: true, token: roomId);
+    // Wait for the receiver to accept (send an answer) or reject
+    return completer.future.timeout(
+      const Duration(minutes: 2), // Generous timeout to let the user read the dialog
+      onTimeout: () {
+        _transferCompleters.remove(targetUid);
+        return TransferResponse(accepted: false);
+      },
+    );
   }
 
   @override
@@ -295,7 +320,7 @@ class WebRtcTransport implements TransportInterface {
     final callData = _pendingIncomingCalls[callerUid];
     if (callData != null) {
       final roomId = callData['roomId'] as String;
-      await _signaling.endCall(_signaling.uid!, roomId);
+      await _signaling.sendReject(callerUid, roomId);
       _pendingIncomingCalls.remove(callerUid);
     }
   }
@@ -401,7 +426,7 @@ class WebRtcTransport implements TransportInterface {
         throw Exception('Data Channel closed prematurely. The receiver may have rejected the transfer or disconnected.');
       }
       
-      if (waitTime >= 15000) {
+      if (waitTime >= 30000) {
         throw Exception('Connection timeout. The WebRTC P2P connection could not be established (likely due to strict NAT/firewalls blocking STUN).');
       }
     }

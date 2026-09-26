@@ -185,9 +185,15 @@ class SignalingService {
     });
   }
 
-  Future<void> endCall(String callerUid, String roomId) async {
+  Future<void> endCall(String targetUid, String roomId) async {
     // Send end signal
-    await sendSignal(targetUid: 'ALL', type: 'end', data: {
+    await sendSignal(targetUid: targetUid, type: 'end', data: {
+      'roomId': roomId,
+    });
+  }
+
+  Future<void> sendReject(String targetUid, String roomId) async {
+    await sendSignal(targetUid: targetUid, type: 'reject', data: {
       'roomId': roomId,
     });
   }
