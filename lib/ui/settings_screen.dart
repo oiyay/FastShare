@@ -1,20 +1,19 @@
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
-
 import 'package:fast_share/core/services/settings_service.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key});
+  const SettingsScreen({Key? key}) : super(key: key);
 
   @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
+  _SettingsScreenState createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final _settings = SettingsService();
   String _effectiveSavePath = '';
+  late TextEditingController _nameController;
 
   static const _colorOptions = <String, Color>{
     'Deep Purple': Colors.deepPurple,
@@ -29,316 +28,217 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadSavePath();
+    _nameController = TextEditingController(text: _settings.deviceName);
+    _loadEffectivePath();
+    _settings.onSettingsChanged.listen((_) {
+      if (mounted) setState(() {});
+    });
   }
 
-  Future<void> _loadSavePath() async {
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadEffectivePath() async {
     final path = await _settings.getEffectiveSavePath();
     if (mounted) setState(() => _effectiveSavePath = path);
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
+        elevation: 0,
+        backgroundColor: isDark ? const Color(0xFF181818) : const Color(0xFFF5F5F5),
       ),
       body: ListView(
-        padding: const EdgeInsets.symmetric(vertical: 8),
+        padding: const EdgeInsets.all(16),
         children: [
-          // ── Device ───────────────────────
-          _sectionHeader(context, 'Device & Profile', Icons.smartphone),
-          Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          // Visual Identity Card (Discord Style)
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(colors: [Color(0xFF3A76F0), Color(0xFF1E5BB3)]),
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Column(
               children: [
-                ListTile(
-                  leading: const Icon(Icons.badge_outlined),
-                  title: const Text('Device Name'),
-                  subtitle: Text(_settings.deviceName),
-                  trailing: const Icon(Icons.edit, size: 20),
-                  onTap: _editDeviceName,
+                const CircleAvatar(
+                  radius: 36,
+                  backgroundColor: Colors.white24,
+                  child: Icon(Icons.person, size: 40, color: Colors.white),
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.person_outline),
-                  title: const Text('Username'),
-                  subtitle: Text(_settings.username.isEmpty 
-                      ? 'Not set (defaults to Guest)' 
-                      : _settings.username),
-                  trailing: const Icon(Icons.edit, size: 20),
-                  onTap: _editUsername,
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      _settings.deviceName,
+                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                    ),
+                    Text(
+                      ' #${_settings.shortTag}',
+                      style: TextStyle(fontSize: 18, color: Colors.white.withOpacity(0.7)),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'This is your secure cryptographic identity.\nNo one can hijack this tag.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
                 ),
               ],
             ),
           ),
-
+          const SizedBox(height: 24),
+          
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Display Name', style: TextStyle(fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _nameController,
+                    decoration: const InputDecoration(
+                      hintText: 'Enter your name...',
+                      border: OutlineInputBorder(),
+                    ),
+                    onChanged: (val) => _settings.deviceName = val,
+                  ),
+                ],
+              ),
+            ),
+          ),
           const SizedBox(height: 16),
 
-          // ── Storage ──────────────────────
-          _sectionHeader(context, 'Storage', Icons.folder_outlined),
           Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.save_alt),
+                  leading: const Icon(Icons.folder),
                   title: const Text('Save Location'),
-                  subtitle: Text(
-                    _effectiveSavePath,
-                    style: TextStyle(fontSize: 12, color: Colors.grey[400]),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  subtitle: Text(_effectiveSavePath.isEmpty ? 'Loading...' : _effectiveSavePath),
+                  trailing: TextButton(
+                    onPressed: () async {
+                      final result = await FilePicker.platform.getDirectoryPath();
+                      if (result != null) {
+                        _settings.savePath = result;
+                        _loadEffectivePath();
+                      }
+                    },
+                    child: const Text('Change'),
                   ),
-                  trailing: const Icon(Icons.folder_open, size: 20),
-                  onTap: _pickSaveDirectory,
                 ),
                 if (_settings.savePath.isNotEmpty)
                   ListTile(
-                    leading: const Icon(Icons.restart_alt),
-                    title: const Text('Reset to Default'),
-                    onTap: () async {
+                    title: const Text('Reset to Default Location', style: TextStyle(color: Colors.red)),
+                    onTap: () {
                       _settings.savePath = '';
-                      await _loadSavePath();
+                      _loadEffectivePath();
                     },
                   ),
               ],
             ),
           ),
-
           const SizedBox(height: 16),
-
-          // ── Transfer ─────────────────────
-          _sectionHeader(context, 'Transfer', Icons.swap_horiz),
+          
           Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Column(
               children: [
                 SwitchListTile(
-                  secondary: const Icon(Icons.check_circle_outline),
-                  title: const Text('Auto Accept'),
-                  subtitle: const Text('Accept incoming transfers automatically'),
+                  title: const Text('Auto-accept Transfers'),
+                  subtitle: const Text('Automatically receive files from any device'),
                   value: _settings.autoAccept,
-                  onChanged: (v) => setState(() => _settings.autoAccept = v),
+                  onChanged: (val) => _settings.autoAccept = val,
                 ),
+                const Divider(height: 1),
                 SwitchListTile(
-                  secondary: const Icon(Icons.notifications_outlined),
                   title: const Text('Show Notifications'),
-                  subtitle: const Text('Notify on incoming transfer requests'),
+                  subtitle: const Text('Alert when a transfer completes'),
                   value: _settings.showNotifications,
-                  onChanged: (v) => setState(() => _settings.showNotifications = v),
-                ),
-                ListTile(
-                  leading: const Icon(Icons.multiple_stop),
-                  title: const Text('Max Concurrent Transfers'),
-                  trailing: DropdownButton<int>(
-                    value: _settings.maxConcurrentTransfers,
-                    underline: const SizedBox(),
-                    items: const [
-                      DropdownMenuItem(value: 1, child: Text('1')),
-                      DropdownMenuItem(value: 2, child: Text('2')),
-                      DropdownMenuItem(value: 3, child: Text('3')),
-                      DropdownMenuItem(value: 5, child: Text('5')),
-                    ],
-                    onChanged: (v) {
-                      if (v != null) setState(() => _settings.maxConcurrentTransfers = v);
-                    },
-                  ),
+                  onChanged: (val) => _settings.showNotifications = val,
                 ),
               ],
             ),
           ),
-
           const SizedBox(height: 16),
 
-          // ── Appearance ───────────────────
-          _sectionHeader(context, 'Appearance', Icons.palette_outlined),
           Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
             child: Column(
               children: [
                 ListTile(
-                  leading: const Icon(Icons.brightness_6),
+                  leading: const Icon(Icons.dark_mode),
                   title: const Text('Theme'),
                   trailing: DropdownButton<String>(
                     value: _settings.theme,
-                    underline: const SizedBox(),
                     items: const [
                       DropdownMenuItem(value: 'system', child: Text('System')),
-                      DropdownMenuItem(value: 'dark', child: Text('Dark')),
                       DropdownMenuItem(value: 'light', child: Text('Light')),
+                      DropdownMenuItem(value: 'dark', child: Text('Dark')),
                     ],
-                    onChanged: (v) {
-                      if (v != null) setState(() => _settings.theme = v);
-                    },
+                    onChanged: (val) => _settings.theme = val!,
                   ),
                 ),
+                const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.color_lens_outlined),
+                  leading: const Icon(Icons.color_lens),
                   title: const Text('Accent Color'),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Wrap(
-                      spacing: 10,
-                      children: _colorOptions.entries.map((e) {
-                        final isSelected = _settings.colorSeed == e.value.value;
-                        return GestureDetector(
-                          onTap: () => setState(() => _settings.colorSeed = e.value.value),
-                          child: Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: e.value,
-                              shape: BoxShape.circle,
-                              border: isSelected
-                                  ? Border.all(color: Colors.white, width: 3)
-                                  : null,
-                              boxShadow: isSelected
-                                  ? [BoxShadow(color: e.value.withOpacity(0.6), blurRadius: 8)]
-                                  : null,
-                            ),
-                            child: isSelected
-                                ? const Icon(Icons.check, size: 18, color: Colors.white)
-                                : null,
-                          ),
-                        );
-                      }).toList(),
-                    ),
+                  trailing: DropdownButton<int>(
+                    value: _settings.colorSeed,
+                    items: _colorOptions.entries.map((e) {
+                      return DropdownMenuItem(
+                        value: e.value.value,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(width: 16, height: 16, color: e.value),
+                            const SizedBox(width: 8),
+                            Text(e.key),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (val) => _settings.colorSeed = val!,
                   ),
                 ),
               ],
             ),
           ),
-
-          const SizedBox(height: 16),
-
-          // ── About ────────────────────────
-          _sectionHeader(context, 'About', Icons.info_outline),
-          Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-            child: Column(
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.rocket_launch),
-                  title: const Text('FastShare'),
-                  subtitle: const Text('v2.1.0 — Hybrid Protocol'),
+          
+          const SizedBox(height: 24),
+          TextButton(
+            onPressed: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (context) => AlertDialog(
+                  title: const Text('Reset All Settings?'),
+                  content: const Text('This will reset your theme, paths, and clear your cryptographic identity. You will lose your #tag.'),
+                  actions: [
+                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                    TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Reset', style: TextStyle(color: Colors.red))),
+                  ],
                 ),
-                ListTile(
-                  leading: const Icon(Icons.favorite, color: Colors.red),
-                  title: const Text('Made with ❤️ using Flutter'),
-                  subtitle: Text(
-                    'Cross-platform LAN file sharing',
-                    style: TextStyle(color: Colors.grey[500]),
-                  ),
-                ),
-              ],
-            ),
+              );
+              if (confirm == true) {
+                await _settings.resetAll();
+                if (mounted) Navigator.pop(context);
+              }
+            },
+            child: const Text('Reset Application Data', style: TextStyle(color: Colors.red)),
           ),
-
           const SizedBox(height: 32),
         ],
       ),
     );
-  }
-
-  Widget _sectionHeader(BuildContext context, String title, IconData icon) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(width: 8),
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _editDeviceName() async {
-    final controller = TextEditingController(text: _settings.deviceName);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Device Name'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Enter device name',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (v) => Navigator.pop(ctx, v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-
-    if (result != null && result.trim().isNotEmpty) {
-      setState(() => _settings.deviceName = result.trim());
-    }
-  }
-
-  Future<void> _editUsername() async {
-    final controller = TextEditingController(text: _settings.username);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Username'),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: const InputDecoration(
-            labelText: 'Enter custom username (optional)',
-            border: OutlineInputBorder(),
-          ),
-          onSubmitted: (v) => Navigator.pop(ctx, v),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, controller.text),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-
-    if (result != null) {
-      setState(() => _settings.username = result.trim());
-    }
-  }
-
-  Future<void> _pickSaveDirectory() async {
-    final path = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: 'Choose save location for received files',
-    );
-
-    if (path != null) {
-      setState(() {
-        _settings.savePath = path;
-        _effectiveSavePath = path;
-      });
-    }
   }
 }

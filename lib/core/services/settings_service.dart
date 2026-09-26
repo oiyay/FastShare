@@ -1,13 +1,11 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
-
 import 'package:flutter/material.dart';
-import "package:uuid/uuid.dart";
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cryptography/cryptography.dart';
 
-/// Persistent settings service using SharedPreferences.
-/// Singleton — use `SettingsService()` to access.
 class SettingsService {
   static final SettingsService _instance = SettingsService._internal();
   factory SettingsService() => _instance;
@@ -16,26 +14,55 @@ class SettingsService {
   SharedPreferences? _prefs;
   final _changeController = StreamController<void>.broadcast();
 
-  /// Stream that fires when any setting changes.
   Stream<void> get onSettingsChanged => _changeController.stream;
 
-  /// Initialize the service. Must be called before accessing settings.
+  // Cryptographic Keys
+  late SimpleKeyPair _keyPair;
+  late String _publicKeyBase64;
+  late String _shortTag;
+
   Future<void> init() async {
     _prefs = await SharedPreferences.getInstance();
+    
+    // Load or Generate Ed25519 Keypair
+    final algo = Ed25519();
+    final privKeyB64 = _prefs?.getString('priv_key');
+    final pubKeyB64 = _prefs?.getString('pub_key');
+
+    if (privKeyB64 == null || pubKeyB64 == null) {
+      // First boot: Generate keys
+      _keyPair = await algo.newKeyPair();
+      final privKey = await _keyPair.extractPrivateKeyBytes();
+      final pubKey = await _keyPair.extractPublicKey();
+      
+      _prefs?.setString('priv_key', base64Encode(privKey));
+      _prefs?.setString('pub_key', base64Encode(pubKey.bytes));
+      
+      _publicKeyBase64 = base64Encode(pubKey.bytes);
+    } else {
+      // Load existing keys
+      _publicKeyBase64 = pubKeyB64;
+      _keyPair = SimpleKeyPairData(
+        base64Decode(privKeyB64),
+        publicKey: SimplePublicKey(base64Decode(pubKeyB64), type: KeyPairType.ed25519),
+        type: KeyPairType.ed25519,
+      );
+    }
+
+    // Generate short tag (first 4 chars of SHA256 of Public Key, uppercase)
+    final hash = await Sha256().hash(base64Decode(_publicKeyBase64));
+    final hashHex = hash.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    _shortTag = hashHex.substring(0, 4).toUpperCase();
   }
 
   void _notify() => _changeController.add(null);
 
-  // ── Device ID, Name & Username ───────────
-
-  String get deviceId {
-    var id = _prefs?.getString('device_id');
-    if (id == null || id.isEmpty) {
-      id = const Uuid().v4();
-      _prefs?.setString('device_id', id);
-    }
-    return id;
-  }
+  SimpleKeyPair get keyPair => _keyPair;
+  String get publicKeyBase64 => _publicKeyBase64;
+  String get shortTag => _shortTag;
+  
+  // The unique ID used by TransportManager (replaces UUID)
+  String get deviceId => _publicKeyBase64;
 
   String get deviceName {
     return _prefs?.getString('device_name') ?? Platform.localHostname;
@@ -46,16 +73,7 @@ class SettingsService {
     _notify();
   }
 
-  String get username {
-    return _prefs?.getString('username') ?? '';
-  }
-
-  set username(String value) {
-    _prefs?.setString('username', value);
-    _notify();
-  }
-
-  // ── Save Path ────────────────────────────
+  String get fullIdentity => "$deviceName #$_shortTag";
 
   String get savePath {
     return _prefs?.getString('save_path') ?? '';
@@ -66,125 +84,65 @@ class SettingsService {
     _notify();
   }
 
-  /// Get the platform-appropriate default save path.
   static Future<String> getDefaultSavePath() async {
     if (Platform.isAndroid) {
-      // Use app-specific storage which doesn't require scary permissions on Android 11+
       final appDir = await getExternalStorageDirectory();
       return '${appDir?.path ?? "/storage/emulated/0/Download"}/FastShare';
     } else if (Platform.isWindows) {
-      final dir = await getDownloadsDirectory();
-      return '${dir?.path ?? "C:\\Users\\Public\\Downloads"}\\FastShare';
+      return 'C:\\Users\\Public\\Downloads\\FastShare';
     } else {
       final dir = await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
       return '${dir.path}/FastShare';
     }
   }
 
-  /// Get the effective save path (custom or default).
-  /// Falls back to app-private storage if public folder isn't writable.
   Future<String> getEffectiveSavePath() async {
     final custom = savePath;
     if (custom.isNotEmpty) {
-      // Verify the custom path is writable
       try {
         final dir = Directory(custom);
         await dir.create(recursive: true);
         return custom;
-      } catch (_) {
-        // Custom path not writable, fall back to default
-      }
+      } catch (_) {}
     }
-
     final defaultPath = await getDefaultSavePath();
-
-    // Verify the default path is writable
     try {
-      final dir = Directory(defaultPath);
-      await dir.create(recursive: true);
+      await Directory(defaultPath).create(recursive: true);
       return defaultPath;
     } catch (_) {
-      // Default path not writable (no MANAGE_EXTERNAL_STORAGE permission)
-      // Fall back to app-private storage
       if (Platform.isAndroid) {
         final appDir = await getExternalStorageDirectory();
         final fallback = '${appDir?.path ?? "/data/local/tmp"}/FastShare';
         await Directory(fallback).create(recursive: true);
         return fallback;
       }
-      return defaultPath; // On other platforms, just return default
+      return defaultPath;
     }
   }
 
-  // ── Auto Accept ──────────────────────────
+  bool get autoAccept => _prefs?.getBool('auto_accept') ?? false;
+  set autoAccept(bool value) { _prefs?.setBool('auto_accept', value); _notify(); }
 
-  bool get autoAccept {
-    return _prefs?.getBool('auto_accept') ?? false;
-  }
+  bool get showNotifications => _prefs?.getBool('show_notifications') ?? true;
+  set showNotifications(bool value) { _prefs?.setBool('show_notifications', value); _notify(); }
 
-  set autoAccept(bool value) {
-    _prefs?.setBool('auto_accept', value);
-    _notify();
-  }
-
-  // ── Notifications ────────────────────────
-
-  bool get showNotifications {
-    return _prefs?.getBool('show_notifications') ?? true;
-  }
-
-  set showNotifications(bool value) {
-    _prefs?.setBool('show_notifications', value);
-    _notify();
-  }
-
-  // ── Theme ────────────────────────────────
-
-  String get theme {
-    return _prefs?.getString('theme') ?? 'dark';
-  }
-
-  set theme(String value) {
-    _prefs?.setString('theme', value);
-    _notify();
-  }
-
+  String get theme => _prefs?.getString('theme') ?? 'dark';
+  set theme(String value) { _prefs?.setString('theme', value); _notify(); }
   ThemeMode get themeMode {
     switch (theme) {
-      case 'light':
-        return ThemeMode.light;
-      case 'dark':
-        return ThemeMode.dark;
-      default:
-        return ThemeMode.system;
+      case 'light': return ThemeMode.light;
+      case 'dark': return ThemeMode.dark;
+      default: return ThemeMode.system;
     }
   }
 
-  // ── Color Seed ───────────────────────────
-
-  int get colorSeed {
-    return _prefs?.getInt('color_seed') ?? Colors.deepPurple.value;
-  }
-
-  set colorSeed(int value) {
-    _prefs?.setInt('color_seed', value);
-    _notify();
-  }
-
+  int get colorSeed => _prefs?.getInt('color_seed') ?? Colors.deepPurple.value;
+  set colorSeed(int value) { _prefs?.setInt('color_seed', value); _notify(); }
   Color get colorSeedColor => Color(colorSeed);
 
-  // ── Max Concurrent Transfers ─────────────
+  int get maxConcurrentTransfers => _prefs?.getInt('max_concurrent_transfers') ?? 3;
+  set maxConcurrentTransfers(int value) { _prefs?.setInt('max_concurrent_transfers', value); _notify(); }
 
-  int get maxConcurrentTransfers {
-    return _prefs?.getInt('max_concurrent_transfers') ?? 3;
-  }
-
-  set maxConcurrentTransfers(int value) {
-    _prefs?.setInt('max_concurrent_transfers', value);
-    _notify();
-  }
-
-  /// Reset all settings to defaults.
   Future<void> resetAll() async {
     await _prefs?.clear();
     _notify();
