@@ -34,6 +34,11 @@ class NearbyTransport implements TransportInterface {
       Permission.bluetoothScan,
       Permission.nearbyWifiDevices,
     ].request();
+
+    // Nearby Connections specifically requires Global Location Services (GPS) to be ON.
+    if (!await Nearby().checkLocationEnabled()) {
+      await Nearby().enableLocationServices();
+    }
   }
 
   @override

@@ -28,6 +28,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // State
   final Map<String, DeviceInfo> _devices = {};
+  
+  List<DeviceInfo> get _uniqueDevices {
+    final Map<String, DeviceInfo> byName = {};
+    for (final d in _devices.values) {
+      if (!byName.containsKey(d.name) || d.ip != null) {
+        byName[d.name] = d;
+      }
+    }
+    return byName.values.toList();
+  }
+
   final List<TransferInfo> _transfers = [];
   DeviceInfo? _selectedDevice;
   bool _isInitialized = false;
@@ -448,11 +459,11 @@ class _HomeScreenState extends State<HomeScreen> {
               const Icon(Icons.devices, size: 20),
               const SizedBox(width: 8),
               Text(
-                'Nearby Devices (${_devices.length})',
+                'Nearby Devices (${_uniqueDevices.length})',
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
               const Spacer(),
-              if (_devices.isEmpty && _isInitialized)
+              if (_uniqueDevices.isEmpty && _isInitialized)
                 Text(
                   'Searching...',
                   style: TextStyle(color: Colors.grey[500], fontSize: 12),
@@ -464,7 +475,7 @@ class _HomeScreenState extends State<HomeScreen> {
           // Device list
           Expanded(
             flex: 2,
-            child: _devices.isEmpty
+            child: _uniqueDevices.isEmpty
                 ? Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -484,9 +495,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   )
                 : ListView.builder(
-                    itemCount: _devices.length,
+                    itemCount: _uniqueDevices.length,
                     itemBuilder: (context, index) {
-                      final device = _devices.values.elementAt(index);
+                      final device = _uniqueDevices[index];
                       return DeviceTile(
                         device: device,
                         isSelected: _selectedDevice?.id == device.id,
