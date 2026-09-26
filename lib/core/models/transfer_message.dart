@@ -5,19 +5,26 @@ class TransferMessage {
   final String senderId;
   final String targetId;
   final String remoteName;
-  final String fileName;
-  final int fileSize;
+  
+  final String messageType; // 'file' or 'text'
+  final String? textContent; 
+
+  final String fileName; // Used if type == 'file'
+  final int fileSize; // Used if type == 'file'
+  
   final int timestamp;
   final bool isSentByMe;
-  final String status; // 'pending', 'transferring', 'completed', 'failed', 'rejected'
+  final String status;
 
   TransferMessage({
     required this.id,
     required this.senderId,
     required this.targetId,
     required this.remoteName,
-    required this.fileName,
-    required this.fileSize,
+    this.messageType = 'file',
+    this.textContent,
+    this.fileName = '',
+    this.fileSize = 0,
     required this.timestamp,
     required this.isSentByMe,
     required this.status,
@@ -28,6 +35,9 @@ class TransferMessage {
       'id': id,
       'senderId': senderId,
       'targetId': targetId,
+      'remoteName': remoteName,
+      'messageType': messageType,
+      'textContent': textContent,
       'fileName': fileName,
       'fileSize': fileSize,
       'timestamp': timestamp,
@@ -42,8 +52,10 @@ class TransferMessage {
       senderId: json['senderId'],
       targetId: json['targetId'],
       remoteName: json['remoteName'] ?? 'Unknown',
-      fileName: json['fileName'],
-      fileSize: json['fileSize'],
+      messageType: json['messageType'] ?? 'file',
+      textContent: json['textContent'],
+      fileName: json['fileName'] ?? '',
+      fileSize: json['fileSize'] ?? 0,
       timestamp: json['timestamp'],
       isSentByMe: json['isSentByMe'],
       status: json['status'],
@@ -58,6 +70,8 @@ class TransferMessage {
       senderId: this.senderId,
       targetId: this.targetId,
       remoteName: this.remoteName,
+      messageType: this.messageType,
+      textContent: this.textContent,
       fileName: this.fileName,
       fileSize: this.fileSize,
       timestamp: this.timestamp,

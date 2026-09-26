@@ -190,6 +190,14 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Chats', style: TextStyle(fontWeight: FontWeight.bold)),
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              _onlineDevices.clear();
+              setState(() {});
+              _transport.refreshDiscovery();
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen())),
           ),
