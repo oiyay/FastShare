@@ -1,11 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
+import "package:crypto/crypto.dart";
 import 'package:uuid/uuid.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 import 'package:fast_share/core/models/device_info.dart';
 
 class SignalingService {
+  static final SignalingService _instance = SignalingService._internal();
+  factory SignalingService() => _instance;
+  SignalingService._internal();
+
   final String _uid = const Uuid().v4();
   String _username = '';
   String _os = '';
@@ -15,21 +20,36 @@ class SignalingService {
   final _onlineUsersController = StreamController<List<DeviceInfo>>.broadcast();
   final _incomingMessagesController = StreamController<Map<String, dynamic>>.broadcast();
   
+  List<DeviceInfo> _currentOnlineUsers = [];
+
   // Expose Streams
-  Stream<List<DeviceInfo>> get onlineUsers => _onlineUsersController.stream;
+  Stream<List<DeviceInfo>> get onlineUsers async* {
+    yield _currentOnlineUsers;
+    yield* _onlineUsersController.stream;
+  }
   Stream<Map<String, dynamic>> get incomingMessages => _incomingMessagesController.stream;
 
   String get uid => _uid;
   String get username => _username;
 
+  bool _isInitialized = false;
+
   Future<void> initialize(String username, String os) async {
+    if (_isInitialized) return;
+    _isInitialized = true;
     _username = username;
     _os = os;
     _connect();
   }
 
   void _connect() {
-    final wsUrl = Uri.parse('wss://signaling.apcb.net/ws');
+    final timestamp = DateTime.now().millisecondsSinceEpoch.toString();
+    final secret = 'FastShareSignaling2026!';
+    final message = '$_uid:$timestamp';
+    final hmac = Hmac(sha256, utf8.encode(secret));
+    final signature = hmac.convert(utf8.encode(message)).toString();
+
+    final wsUrl = Uri.parse('wss://signaling.apcb.net/ws?uid=$_uid&timestamp=$timestamp&signature=$signature');
     
     try {
       _channel = WebSocketChannel.connect(wsUrl);
@@ -64,6 +84,7 @@ class SignalingService {
             // Remove self from the list
             devices.removeWhere((d) => d.id == _uid);
             
+            _currentOnlineUsers = devices;
             _onlineUsersController.add(devices);
           } else if (type == 'signal') {
             // A direct signal message targeted to us
