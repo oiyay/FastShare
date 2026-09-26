@@ -23,7 +23,8 @@ class _GlobalShareScreenState extends State<GlobalShareScreen> {
 
   Future<void> _initFirebase() async {
     try {
-      await SignalingService().initialize();
+      final selfInfo = TransportManager().selfInfo;
+      await SignalingService().initialize(selfInfo?.name ?? 'Unknown', selfInfo?.os ?? 'unknown');
       setState(() => _isInitializing = false);
     } catch (e) {
       setState(() {
@@ -67,7 +68,7 @@ class _GlobalShareScreenState extends State<GlobalShareScreen> {
                               children: [
                                 const Text('You are visible globally as:', style: TextStyle(fontSize: 12, color: Colors.grey)),
                                 Text(
-                                  SignalingService().username ?? '@unknown',
+                                  SignalingService().username,
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                                 ),
                               ],
@@ -83,7 +84,7 @@ class _GlobalShareScreenState extends State<GlobalShareScreen> {
                     ),
                     const Divider(height: 1),
                     Expanded(
-                      child: StreamBuilder<List<GlobalUser>>(
+                      child: StreamBuilder<List<DeviceInfo>>(
                         stream: SignalingService().onlineUsers,
                         builder: (context, snapshot) {
                           if (snapshot.hasError) {

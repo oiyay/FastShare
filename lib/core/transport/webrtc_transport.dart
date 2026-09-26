@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import "turn_credential.dart";
+import "package:fast_share/core/services/settings_service.dart";
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart' as crypto;
 import 'package:flutter_webrtc/flutter_webrtc.dart';
@@ -63,7 +64,8 @@ class WebRtcTransport implements TransportInterface {
 
   @override
   Future<void> initialize() async {
-    await _signaling.initialize();
+    final settings = SettingsService();
+    await _signaling.initialize(settings.deviceName, 'unknown');
     _signalingSub = _signaling.incomingMessages.listen(_handleIncomingMessage);
   }
 
@@ -204,7 +206,7 @@ class WebRtcTransport implements TransportInterface {
 
     pc.onIceCandidate = (candidate) async {
       if (candidate.candidate == null || candidate.candidate!.isEmpty) return;
-      await _signaling.sendIceCandidate(_signaling.uid!, targetUid, roomId, {
+      await _signaling.sendIceCandidate(_signaling.uid, targetUid, roomId, {
         'candidate': candidate.candidate,
         'sdpMid': candidate.sdpMid,
         'sdpMLineIndex': candidate.sdpMLineIndex,
@@ -224,7 +226,7 @@ class WebRtcTransport implements TransportInterface {
     final completer = Completer<TransferResponse>();
     _transferCompleters[targetUid] = completer;
 
-    await _signaling.sendOffer(_signaling.uid!, targetUid, roomId, {
+    await _signaling.sendOffer(_signaling.uid, targetUid, roomId, {
       'type': offer.type,
       'sdp': offer.sdp,
       'requestJson': jsonEncode(request.toJson()),
@@ -282,7 +284,7 @@ class WebRtcTransport implements TransportInterface {
 
     pc.onIceCandidate = (candidate) async {
       if (candidate.candidate == null || candidate.candidate!.isEmpty) return;
-      await _signaling.sendIceCandidate(_signaling.uid!, callerUid, roomId, {
+      await _signaling.sendIceCandidate(_signaling.uid, callerUid, roomId, {
         'candidate': candidate.candidate,
         'sdpMid': candidate.sdpMid,
         'sdpMLineIndex': candidate.sdpMLineIndex,
@@ -310,7 +312,7 @@ class WebRtcTransport implements TransportInterface {
     final answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
-    await _signaling.sendAnswer(_signaling.uid!, callerUid, roomId, {
+    await _signaling.sendAnswer(_signaling.uid, callerUid, roomId, {
       'type': answer.type,
       'sdp': answer.sdp,
     });

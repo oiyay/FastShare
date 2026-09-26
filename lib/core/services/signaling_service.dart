@@ -20,6 +20,7 @@ class SignalingService {
   Stream<Map<String, dynamic>> get incomingMessages => _incomingMessagesController.stream;
 
   String get uid => _uid;
+  String get username => _username;
 
   Future<void> initialize(String username, String os) async {
     _username = username;
@@ -49,13 +50,14 @@ class SignalingService {
 
           if (type == 'presence') {
             final usersList = data['users'] as List;
-            final devices = usersList.map((u) {
+            final devices = usersList.map<DeviceInfo>((u) {
               final userMap = u as Map<String, dynamic>;
               return DeviceInfo(
                 id: userMap['uid'].toString(),
                 name: userMap['username'].toString(),
                 os: userMap['os'].toString(),
                 ip: 'Remote P2P', // Display text
+                port: 0,
               );
             }).toList();
             
@@ -120,8 +122,9 @@ class SignalingService {
     });
   }
 
-  Future<void> sendIceCandidate(String callerUid, String targetUid, Map<String, dynamic> candidateData) async {
+  Future<void> sendIceCandidate(String callerUid, String targetUid, String roomId, Map<String, dynamic> candidateData) async {
     await sendSignal(targetUid: targetUid, type: 'ice_candidate', data: {
+      'roomId': roomId,
       'candidate': candidateData,
     });
   }
