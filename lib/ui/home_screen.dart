@@ -5,6 +5,7 @@ import 'package:fast_share/core/models/transfer_message.dart';
 import 'package:fast_share/core/services/database_service.dart';
 import 'package:fast_share/core/services/settings_service.dart';
 import 'package:fast_share/core/services/signaling_service.dart';
+import 'package:fast_share/core/services/connection_manager.dart';
 import 'package:fast_share/core/transport/transport_manager.dart';
 import 'package:fast_share/ui/chat_screen.dart';
 import 'package:fast_share/ui/settings_screen.dart';
@@ -21,25 +22,8 @@ class _HomeScreenState extends State<HomeScreen> {
   final TransportManager _transport = TransportManager();
   final SignalingService _signaling = SignalingService();
 
-  final Map<String, DeviceInfo> _localDevices = {};
-  final Map<String, DeviceInfo> _globalDevices = {};
-
-  // Computed unified list
-  List<DeviceInfo> get _unifiedDevices {
-    final Map<String, DeviceInfo> merged = {};
-    
-    // Add global first
-    for (final d in _globalDevices.values) {
-      merged[d.id] = d;
-    }
-    
-    // Add local (overwrites global with local protocol for priority speed!)
-    for (final d in _localDevices.values) {
-      merged[d.id] = d;
-    }
-    
-    return merged.values.toList();
-  }
+  List<DeviceInfo> _unifiedDevices = [];
+  StreamSubscription? _connSub;
 
   @override
   void initState() {
@@ -54,25 +38,22 @@ class _HomeScreenState extends State<HomeScreen> {
     if (selfInfo != null) {
       await _signaling.initialize(selfInfo.name, selfInfo.os);
     }
-
-    _transport.devices.listen((d) {
+    
+    ConnectionManager().init();
+    
+    _connSub = ConnectionManager().unifiedDevicesStream.listen((devices) {
       if (mounted) {
         setState(() {
-          _localDevices[d.id] = d;
+          _unifiedDevices = devices;
         });
       }
     });
-
-    _signaling.onlineUsers.listen((devices) {
-      if (mounted) {
-        setState(() {
-          _globalDevices.clear();
-          for (final d in devices) {
-            _globalDevices[d.id] = d.copyWith(protocol: 'webrtc');
-          }
-        });
-      }
-    });
+  }
+  
+  @override
+  void dispose() {
+    _connSub?.cancel();
+    super.dispose();
   }
 
 
@@ -98,7 +79,7 @@ class _HomeScreenState extends State<HomeScreen> {
             itemCount: _unifiedDevices.length,
             itemBuilder: (context, index) {
               final device = _unifiedDevices[index];
-              final isGlobal = device.protocol == 'webrtc';
+              
               return GestureDetector(
                 onTap: () => _openChat(device),
                 child: Container(
@@ -110,22 +91,27 @@ class _HomeScreenState extends State<HomeScreen> {
                         children: [
                           CircleAvatar(
                             radius: 28,
-                            backgroundColor: isGlobal ? primaryColor.withOpacity(0.2) : Colors.green.withOpacity(0.2),
-                            child: Icon(Icons.person, color: isGlobal ? primaryColor : Colors.green, size: 28),
+                            backgroundColor: device.hasLocalRoute ? Colors.green.withOpacity(0.2) : primaryColor.withOpacity(0.2),
+                            child: Icon(Icons.person, color: device.hasLocalRoute ? Colors.green : primaryColor, size: 28),
                           ),
-                          Positioned(
-                            right: 0,
-                            bottom: 0,
-                            child: CircleAvatar(
-                              radius: 10,
-                              backgroundColor: isDark ? Colors.black : Colors.white,
+                          if (device.hasLocalRoute || device.hasGlobalRoute)
+                            Positioned(
+                              right: 0,
+                              bottom: 0,
                               child: CircleAvatar(
-                                radius: 8,
-                                backgroundColor: isGlobal ? primaryColor : Colors.green,
-                                child: Icon(isGlobal ? Icons.public : Icons.wifi, size: 10, color: Colors.white),
+                                radius: 10,
+                                backgroundColor: isDark ? Colors.black : Colors.white,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (device.hasLocalRoute)
+                                      const CircleAvatar(radius: 5, backgroundColor: Colors.green, child: Icon(Icons.wifi, size: 6, color: Colors.white)),
+                                    if (device.hasGlobalRoute)
+                                      CircleAvatar(radius: 5, backgroundColor: primaryColor, child: const Icon(Icons.public, size: 6, color: Colors.white)),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
                         ],
                       ),
                       const SizedBox(height: 8),
@@ -176,7 +162,7 @@ class _HomeScreenState extends State<HomeScreen> {
               
               // We need the remote device name. It might be online or offline.
               // If offline, we just show the ID for now. (Ideally we save contacts in DB).
-              final remoteDevice = _unifiedDevices.firstWhere((d) => d.id == remoteId, orElse: () => DeviceInfo(id: remoteId, name: msg.remoteName, os: 'Unknown', ip: '', port: 0));
+              final remoteDevice = ConnectionManager().getDevice(remoteId, fallbackName: msg.remoteName);
 
               return ListTile(
                 leading: CircleAvatar(
@@ -217,7 +203,7 @@ class _HomeScreenState extends State<HomeScreen> {
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () {
-              _localDevices.clear(); _globalDevices.clear();
+              ConnectionManager().clear();
               setState(() {});
               _transport.refreshDiscovery();
             },

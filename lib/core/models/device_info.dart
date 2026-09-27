@@ -10,6 +10,8 @@ class DeviceInfo {
   final int port; // HTTP port
   final int? tcpPort; // Raw TCP port for fastshare protocol
   final String protocol; // 'fastshare', 'localsend'
+  final bool hasLocalRoute;
+  final bool hasGlobalRoute;
   final DateTime lastSeen;
 
 
@@ -36,6 +38,8 @@ class DeviceInfo {
     required this.port,
     this.tcpPort,
     this.protocol = 'fastshare',
+    this.hasLocalRoute = false,
+    this.hasGlobalRoute = false,
     DateTime? lastSeen,
   }) : lastSeen = lastSeen ?? DateTime.now();
 
@@ -47,6 +51,8 @@ class DeviceInfo {
     int? port,
     int? tcpPort,
     String? protocol,
+    bool? hasLocalRoute,
+    bool? hasGlobalRoute,
     DateTime? lastSeen,
   }) {
     return DeviceInfo(
@@ -57,6 +63,8 @@ class DeviceInfo {
       port: port ?? this.port,
       tcpPort: tcpPort ?? this.tcpPort,
       protocol: protocol ?? this.protocol,
+      hasLocalRoute: hasLocalRoute ?? this.hasLocalRoute,
+      hasGlobalRoute: hasGlobalRoute ?? this.hasGlobalRoute,
       lastSeen: lastSeen ?? this.lastSeen,
     );
   }
