@@ -34,6 +34,9 @@ android {
             keyPassword = keystoreProperties["keyPassword"] as String? ?: System.getenv("KEY_PASSWORD") ?: "fastshare123"
             storeFile = file(keystoreProperties["storeFile"] as String? ?: System.getenv("KEYSTORE_PATH") ?: "fastshare-release.jks")
             storePassword = keystoreProperties["storePassword"] as String? ?: System.getenv("STORE_PASSWORD") ?: "fastshare123"
+            enableV2Signing = true
+            enableV3Signing = true
+            enableV4Signing = true
         }
     }
 

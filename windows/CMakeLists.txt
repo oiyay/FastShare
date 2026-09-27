@@ -1,8 +1,6 @@
 # Project-level configuration.
 cmake_minimum_required(VERSION 3.14)
 
-# Fix Firebase C++ SDK compatibility with modern CMake (3.27+)
-set(CMAKE_POLICY_VERSION_MINIMUM 3.5 CACHE STRING "" FORCE)
 
 project(fast_share LANGUAGES CXX)
 

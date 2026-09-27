@@ -8,22 +8,12 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:fast_share/core/services/settings_service.dart';
 import 'package:fast_share/ui/home_screen.dart';
 
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
-  const supabaseUrl = String.fromEnvironment('SUPABASE_URL');
-  const supabaseKey = String.fromEnvironment('SUPABASE_ANON_KEY');
 
-  if (supabaseUrl.isNotEmpty && supabaseKey.isNotEmpty) {
-    await Supabase.initialize(
-      url: supabaseUrl,
-      anonKey: supabaseKey,
-    );
-  } else {
-    print('WARNING: Supabase credentials not found. Global P2P will be disabled.');
-  }
+
 
   await SettingsService().init();
   await DatabaseService().init();

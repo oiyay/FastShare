@@ -46,15 +46,13 @@ jobs:
 
       - name: Build signed APK
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-        run: flutter build apk --release --android-skip-build-dependency-validation --dart-define=SUPABASE_URL="$SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY"
+        run: flutter build apk --release --split-per-abi --android-skip-build-dependency-validation
 
       - name: Upload to GitHub Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: build/app/outputs/flutter-apk/*.apk
 
   # ─────────────────────────────────────
   # JOB 2: Build Windows EXE
@@ -81,9 +79,7 @@ jobs:
         env:
           CL: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
           _CL_: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-        run: flutter build windows --release --dart-define=SUPABASE_URL="$env:SUPABASE_URL" --dart-define=SUPABASE_ANON_KEY="$env:SUPABASE_ANON_KEY"
+        run: flutter build windows --release
 
       - name: Build Windows Installer (InnoSetup)
         shell: cmd
