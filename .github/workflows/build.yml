@@ -45,7 +45,6 @@ jobs:
         run: flutter pub get
 
       - name: Build signed APK
-        env:
         run: flutter build apk --release --split-per-abi --android-skip-build-dependency-validation
 
       - name: Upload to GitHub Release
