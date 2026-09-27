@@ -75,28 +75,7 @@ class _HomeScreenState extends State<HomeScreen> {
     });
   }
 
-  void _startDiscovery() async {
-    await _transport.initialize();
-    await _transport.startDiscovery();
-    final selfInfo = _transport.selfInfo;
-    if (selfInfo != null) {
-      await _signaling.initialize(selfInfo.name, selfInfo.os);
-    }
 
-    _transport.devices.listen((d) {
-      if (mounted) setState(() => _onlineDevices[d.id] = d);
-    });
-
-    _signaling.onlineUsers.listen((devices) {
-      if (mounted) {
-        setState(() {
-          for (final d in devices) {
-            _onlineDevices[d.id] = d.copyWith(protocol: 'webrtc');
-          }
-        });
-      }
-    });
-  }
 
   void _openChat(DeviceInfo device) {
     Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(device: device)));
