@@ -43,7 +43,7 @@ class SignalingService {
 
   /// Send a cryptographically signed text message via WebSocket
   Future<void> sendChatMessage(String targetUid, String text) async {
-    if (_channel == null) return;
+    if (_channel == null) throw Exception('Signaling server disconnected');
     
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final payloadId = const Uuid().v4();
@@ -192,7 +192,7 @@ class SignalingService {
     required String type, // 'offer', 'answer', 'ice_candidate', 'end', 'reject'
     required Map<String, dynamic> data,
   }) async {
-    if (_channel == null) return;
+    if (_channel == null) throw Exception('Signaling server disconnected');
     
     final payload = {
       'type': 'signal',
