@@ -522,7 +522,7 @@ class HttpTransport implements TransportInterface {
           id: payload['id'],
           senderId: senderUid,
           targetId: _selfInfo?.id ?? '',
-          remoteName: 'Local Device', // UI will update this if known
+          remoteName: payload['senderName'] ?? 'Unknown',
           messageType: 'text',
           textContent: payload['text'],
           timestamp: payload['ts'],

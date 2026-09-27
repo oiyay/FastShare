@@ -75,7 +75,7 @@ class _ChatScreenState extends State<ChatScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(widget.device.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                Text(widget.device.displayName, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                 Text('${widget.device.os} • ${widget.device.protocol == "webrtc" ? "Global" : "Local"}', 
                   style: const TextStyle(fontSize: 12, color: Colors.grey)),
               ],

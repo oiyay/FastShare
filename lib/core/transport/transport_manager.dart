@@ -169,7 +169,7 @@ class TransportManager {
     await DatabaseService().saveMessage(dbMsg);
 
     // Build payload and sign it
-    final payload = {'id': payloadId, 'text': text, 'ts': timestamp};
+    final payload = {'id': payloadId, 'text': text, 'ts': timestamp, 'senderName': _selfInfo!.name};
     final payloadStr = jsonEncode(payload);
 
     final keyPair = SettingsService().keyPair;

@@ -130,7 +130,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        device.name,
+                        device.displayName,
                         style: const TextStyle(fontSize: 12),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -176,14 +176,14 @@ class _HomeScreenState extends State<HomeScreen> {
               
               // We need the remote device name. It might be online or offline.
               // If offline, we just show the ID for now. (Ideally we save contacts in DB).
-              final remoteDevice = _unifiedDevices.firstWhere((d) => d.id == remoteId, orElse: () => DeviceInfo(id: remoteId, name: 'Unknown ($remoteId)', os: 'Unknown', ip: '', port: 0));
+              final remoteDevice = _unifiedDevices.firstWhere((d) => d.id == remoteId, orElse: () => DeviceInfo(id: remoteId, name: msg.remoteName, os: 'Unknown', ip: '', port: 0));
 
               return ListTile(
                 leading: CircleAvatar(
                   backgroundColor: primaryColor.withOpacity(0.1),
                   child: Icon(Icons.person, color: primaryColor),
                 ),
-                title: Text(msg.remoteName, style: const TextStyle(fontWeight: FontWeight.bold)),
+                title: Text(remoteDevice.displayName, style: const TextStyle(fontWeight: FontWeight.bold)),
                 subtitle: Text(
                   '${msg.isSentByMe ? "You sent" : "Received"}: ${msg.fileName}',
                   maxLines: 1,

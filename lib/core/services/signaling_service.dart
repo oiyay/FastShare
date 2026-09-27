@@ -47,7 +47,7 @@ class SignalingService {
     
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     final payloadId = const Uuid().v4();
-    final payload = {'id': payloadId, 'text': text, 'ts': timestamp};
+    final payload = {'id': payloadId, 'text': text, 'ts': timestamp, 'senderName': SettingsService().deviceName};
     final payloadStr = jsonEncode(payload);
 
     // Sign the payload to prove identity
@@ -147,7 +147,7 @@ class SignalingService {
                       id: payload['id'],
                       senderId: senderUid,
                       targetId: _uid,
-                      remoteName: 'Unknown', // We can update this in UI
+                      remoteName: payload['senderName'] ?? 'Unknown',
                       messageType: 'text',
                       textContent: payload['text'],
                       timestamp: payload['ts'],

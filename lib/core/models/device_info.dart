@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
 
 /// Represents a discovered device on the network.
 class DeviceInfo {
@@ -10,6 +11,22 @@ class DeviceInfo {
   final int? tcpPort; // Raw TCP port for fastshare protocol
   final String protocol; // 'fastshare', 'localsend'
   final DateTime lastSeen;
+
+
+  /// Automatically computes the Discord-style 4-character tag from the Base64 ID
+  String get shortTag {
+    try {
+      final bytes = base64Decode(id);
+      final hash = sha256.convert(bytes);
+      return hash.toString().substring(0, 4).toUpperCase();
+    } catch (_) {
+      // Fallback if ID is an old UUID instead of Base64 Ed25519 key
+      return id.length > 4 ? id.substring(0, 4).toUpperCase() : id;
+    }
+  }
+
+  /// Returns the beautifully formatted display name with the tag (e.g. Athar #9A2B)
+  String get displayName => '$name #$shortTag';
 
   DeviceInfo({
     required this.id,
