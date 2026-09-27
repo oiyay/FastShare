@@ -500,6 +500,47 @@ class HttpTransport implements TransportInterface {
   }
 
   /// Handle incoming file data (streaming).
+
+  Future<shelf.Response> _handleIncomingChat(shelf.Request request) async {
+    try {
+      final bodyStr = await request.readAsString();
+      final body = jsonDecode(bodyStr);
+      final payloadStr = body['payload'];
+      final sigBase64 = body['sig'];
+      final senderUid = body['senderUid'];
+
+      // Verify Ed25519 signature
+      final pubKeyBytes = base64Decode(senderUid);
+      final sigBytes = base64Decode(sigBase64);
+      final pubKey = SimplePublicKey(pubKeyBytes, type: KeyPairType.ed25519);
+      final signature = Signature(sigBytes, publicKey: pubKey);
+      
+      final isValid = await Ed25519().verify(utf8.encode(payloadStr), signature: signature);
+      if (isValid) {
+        final payload = jsonDecode(payloadStr);
+        final dbMsg = TransferMessage(
+          id: payload['id'],
+          senderId: senderUid,
+          targetId: _selfInfo?.id ?? '',
+          remoteName: 'Local Device', // UI will update this if known
+          messageType: 'text',
+          textContent: payload['text'],
+          timestamp: payload['ts'],
+          isSentByMe: false,
+          status: 'completed',
+        );
+        await DatabaseService().saveMessage(dbMsg);
+        return shelf.Response.ok(jsonEncode({'status': 'ok'}));
+      } else {
+        print('[HttpTransport] Invalid chat signature from $senderUid');
+        return shelf.Response.forbidden('Invalid Signature');
+      }
+    } catch (e) {
+      print('[HttpTransport] Error handling chat: $e');
+      return shelf.Response.internalServerError();
+    }
+  }
+
   Future<shelf.Response> _handleReceiveFile(shelf.Request request) async {
     final token = request.url.queryParameters['token'];
     final fileId = request.url.queryParameters['fileId'];

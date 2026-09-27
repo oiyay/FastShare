@@ -2,6 +2,7 @@ import 'package:fast_share/core/transport/webrtc_transport.dart';
 import 'dart:async';
 import 'dart:io';
 
+import "dart:convert";
 import "package:cryptography/cryptography.dart" hide Hmac;
 import "package:fast_share/core/services/signaling_service.dart";
 import "package:fast_share/core/models/transfer_message.dart";

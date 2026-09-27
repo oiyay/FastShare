@@ -176,7 +176,7 @@ class _HomeScreenState extends State<HomeScreen> {
               
               // We need the remote device name. It might be online or offline.
               // If offline, we just show the ID for now. (Ideally we save contacts in DB).
-              final remoteDevice = _unifiedDevices.firstWhere((d) => d.id == remoteId, orElse: () => DeviceInfo(id: remoteId, name: 'Unknown ($remoteId)', os: 'Unknown', ip: '', port: 0);
+              final remoteDevice = _unifiedDevices.firstWhere((d) => d.id == remoteId, orElse: () => DeviceInfo(id: remoteId, name: 'Unknown ($remoteId)', os: 'Unknown', ip: '', port: 0));
 
               return ListTile(
                 leading: CircleAvatar(
