@@ -80,6 +80,13 @@ jobs:
           _CL_: /D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS
         run: flutter build windows --release
 
+      - name: Copy MSVC Runtime DLLs
+        shell: cmd
+        run: |
+          copy "C:\Windows\System32\msvcp140.dll" "build\windows\x64\runner\Release\"
+          copy "C:\Windows\System32\vcruntime140.dll" "build\windows\x64\runner\Release\"
+          copy "C:\Windows\System32\vcruntime140_1.dll" "build\windows\x64\runner\Release\"
+
       - name: Build Windows Installer (InnoSetup)
         shell: cmd
         run: iscc windows\installer.iss

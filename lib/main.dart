@@ -12,18 +12,29 @@ import 'package:fast_share/ui/home_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
+  try {
+    await SettingsService().init();
+    await DatabaseService().init();
 
+    // Request storage permissions on Android before app starts
+    if (Platform.isAndroid) {
+      await _requestStoragePermissions();
+    }
 
-
-  await SettingsService().init();
-  await DatabaseService().init();
-
-  // Request storage permissions on Android before app starts
-  if (Platform.isAndroid) {
-    await _requestStoragePermissions();
+    runApp(const FastShareApp());
+  } catch (e, stack) {
+    print('CRASH: $e\n$stack');
+    runApp(MaterialApp(
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Text('Fatal Error: $e\n$stack', style: const TextStyle(color: Colors.red, fontSize: 12)),
+          ),
+        )
+      )
+    ));
   }
-
-  runApp(const FastShareApp());
 }
 
 /// Request all necessary storage permissions for Android.
